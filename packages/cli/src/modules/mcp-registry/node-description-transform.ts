@@ -7,7 +7,11 @@ import type {
 	Themed,
 } from 'n8n-workflow';
 
-import type { McpRegistryIcon, McpRegistryServer } from './registry/mcp-registry.types';
+import {
+	mcpRegistryServerSupportedCredentialTypes,
+	type McpRegistryIcon,
+	type McpRegistryServer,
+} from './registry/mcp-registry.types';
 
 export const MCP_REGISTRY_PACKAGE_NAME = '@n8n/mcp-registry';
 export const LANGCHAIN_PACKAGE_NAME = '@n8n/n8n-nodes-langchain';
@@ -82,6 +86,9 @@ function serverToOAuth2CredentialDescription(server: McpRegistryServer): ICreden
  * Get the `credentials` property for node description based on the server's auth type
  */
 function getNodeDescriptionCredentials(server: McpRegistryServer): INodeCredentialDescription[] {
+	if ((mcpRegistryServerSupportedCredentialTypes as readonly string[]).includes(server.authType)) {
+		return [{ name: server.authType, required: true }];
+	}
 	switch (server.authType) {
 		case 'oauth2':
 			return [{ name: getMcpRegistryCredentialTypeName(server), required: true }];
