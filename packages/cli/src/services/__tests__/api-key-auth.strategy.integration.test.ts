@@ -121,6 +121,51 @@ describe('ApiKeyAuthStrategy', () => {
 			expect(await strategy.buildTokenGrant(disabledOwner.apiKeys[0].apiKey)).toBe(false);
 		});
 
+		describe('lastUsedAt tracking', () => {
+			const waitForLastUsedAt = async (apiKeyId: string, timeoutMs = 1000) => {
+				const repo = Container.get(ApiKeyRepository);
+				const start = Date.now();
+				while (Date.now() - start < timeoutMs) {
+					const record = await repo.findOneByOrFail({ id: apiKeyId });
+					if (record.lastUsedAt) return record;
+					await new Promise((resolve) => setTimeout(resolve, 25));
+				}
+				throw new Error(`lastUsedAt did not update within ${timeoutMs}ms`);
+			};
+
+			it('updates lastUsedAt on the API key record after a successful auth', async () => {
+				const owner = await createOwnerWithApiKey();
+				const [{ apiKey, id: apiKeyId }] = owner.apiKeys;
+				const repo = Container.get(ApiKeyRepository);
+
+				expect((await repo.findOneByOrFail({ id: apiKeyId })).lastUsedAt).toBeNull();
+
+				const grant = await strategy.buildTokenGrant(apiKey);
+				expect(grant).toBeTruthy();
+
+				const updated = await waitForLastUsedAt(apiKeyId);
+				expect(updated.lastUsedAt).toBeInstanceOf(Date);
+			});
+
+			it('skips the lastUsedAt update while still within the throttle window', async () => {
+				const owner = await createOwnerWithApiKey();
+				const [{ apiKey, id: apiKeyId }] = owner.apiKeys;
+				const repo = Container.get(ApiKeyRepository);
+
+				const recent = new Date();
+				await repo.update({ id: apiKeyId }, { lastUsedAt: recent });
+
+				const updateSpy = jest.spyOn(repo, 'update');
+
+				const grant = await strategy.buildTokenGrant(apiKey);
+				expect(grant).toBeTruthy();
+				await new Promise((resolve) => setImmediate(resolve));
+
+				expect(updateSpy).not.toHaveBeenCalled();
+				updateSpy.mockRestore();
+			});
+		});
+
 		it('rethrows non-TokenExpiredError from JWT verification', async () => {
 			const owner = await createOwnerWithApiKey();
 			const [{ apiKey }] = owner.apiKeys;

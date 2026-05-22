@@ -8,6 +8,7 @@ import { JwtService } from './jwt.service';
 import { API_KEY_AUDIENCE, API_KEY_ISSUER, PREFIX_LEGACY_API_KEY } from './public-api-key.service';
 
 const API_KEY_HEADER = 'x-n8n-api-key';
+const LAST_USED_AT_THROTTLE_MS = 60_000;
 
 @Service()
 export class ApiKeyAuthStrategy implements AuthStrategy {
@@ -56,11 +57,22 @@ export class ApiKeyAuthStrategy implements AuthStrategy {
 			}
 		}
 
+		this.touchLastUsedAt(apiKeyRecord.id, apiKeyRecord.lastUsedAt);
+
 		return {
 			scopes: apiKeyRecord.user.role.scopes.map((s) => s.slug),
 			subject: apiKeyRecord.user,
 			apiKeyScopes: apiKeyRecord.scopes ?? [],
 		};
+	}
+
+	private touchLastUsedAt(apiKeyId: string, previous: Date | null) {
+		const now = new Date();
+		const previousMs = previous?.getTime() ?? 0;
+		if (now.getTime() - previousMs < LAST_USED_AT_THROTTLE_MS) return;
+
+		// Best-effort: never block auth or surface errors if the write fails.
+		void this.apiKeyRepository.update({ id: apiKeyId }, { lastUsedAt: now }).catch(() => {});
 	}
 
 	async authenticate(req: AuthenticatedRequest): Promise<boolean | null> {
