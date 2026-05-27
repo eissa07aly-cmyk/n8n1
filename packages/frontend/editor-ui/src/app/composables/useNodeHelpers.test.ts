@@ -857,7 +857,7 @@ describe('useNodeHelpers()', () => {
 			const httpRequestNodeType: INodeTypeDescription = {
 				displayName: 'HTTP Request',
 				name: 'httpRequest',
-				group: ['core'],
+				group: ['output'],
 				version: 4.4,
 				description: 'HTTP Request node',
 				defaults: { name: 'HTTP Request' },
