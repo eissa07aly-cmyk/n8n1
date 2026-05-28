@@ -421,11 +421,11 @@ export function useNodeHelpers() {
 	}
 
 	function getPrivateCredentialIssueText(
-		credentialRef: INodeCredentialsDetails | string | undefined,
+		credentialRef: INodeCredentialsDetails | undefined,
 	): string[] | null {
 		if (!credentialRef) return null;
-		if (typeof credentialRef === 'object' && credentialRef.__aiGatewayManaged) return null;
-		const id = typeof credentialRef === 'string' ? null : credentialRef.id;
+		if (credentialRef.__aiGatewayManaged) return null;
+		const id = credentialRef.id;
 		if (!id) return null;
 		const stored = credentialsStore.getCredentialById(id);
 		if (stored?.isResolvable === true && workflowHasIncompatibleTrigger()) {
