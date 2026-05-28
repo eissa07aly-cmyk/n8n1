@@ -19,6 +19,7 @@ import { extractWorkflowCode } from '../../workflow-builder/extract-code';
 import { applyPatches } from '../../workflow-builder/patch-code';
 import { createRemediation } from '../../workflow-loop/remediation';
 import type {
+	RemediationCategory,
 	WorkflowBuildOutcome,
 	WorkflowLoopAction,
 	WorkflowSetupRequirement,
@@ -148,6 +149,26 @@ type WorkflowOutcomeBaseInput = {
 	supportingWorkflowIds?: string[];
 	hasUnresolvedPlaceholders?: boolean;
 };
+type WorkflowCodeFailureReport = {
+	context: InstanceAiContext;
+	errors: string[];
+	failureSignature: string;
+	category?: RemediationCategory;
+	shouldEdit?: boolean;
+	reason?: string;
+	guidance?: string;
+	needsUserInput?: boolean;
+	blockingReason?: string;
+};
+type WorkflowCodeFailureResult = { success: false; errors: string[]; warnings?: string[] };
+type WorkflowCodeSuccessResult = { success: true; workflowId: string; workflowName?: string } & {
+	temporary?: true;
+	warnings?: string[];
+} & WorkflowSaveMetadata;
+type WorkflowCodeSaveResult =
+	| WorkflowCodeSuccessResult
+	| WorkflowCodeFailureResult
+	| WorkflowCodeDeniedResult;
 
 export interface WorkflowCodeToolContext {
 	resumeData?: ResumeData;
@@ -203,6 +224,74 @@ function blockSaveIfNeeded(
 	}
 
 	return undefined;
+}
+
+function plannedBuildFailureRemediation({
+	errors,
+	failureSignature,
+	category,
+	shouldEdit,
+	reason,
+	guidance,
+}: Pick<
+	WorkflowCodeFailureReport,
+	'errors' | 'failureSignature' | 'category' | 'shouldEdit' | 'reason' | 'guidance'
+>) {
+	if (category && shouldEdit !== undefined) {
+		return createRemediation({
+			category,
+			shouldEdit,
+			reason: reason ?? failureSignature,
+			guidance: guidance ?? (errors.join('\n') || failureSignature),
+		});
+	}
+
+	const normalized = `${failureSignature}\n${errors.join('\n')}`.toLowerCase();
+	if (normalized.includes('user_denied') || normalized.includes('user denied')) {
+		return createRemediation({
+			category: 'blocked',
+			shouldEdit: false,
+			reason: 'user_denied',
+			guidance:
+				'The user denied saving the workflow. Stop editing and acknowledge the cancellation.',
+		});
+	}
+
+	if (failureSignature.startsWith('save_failed:')) {
+		return createRemediation({
+			category: 'blocked',
+			shouldEdit: false,
+			reason: 'save_failed',
+			guidance:
+				'The workflow code validated, but the workflow could not be saved. Stop editing and explain the save blocker to the user.',
+		});
+	}
+
+	if (
+		normalized.includes('credential') &&
+		(normalized.includes('missing') ||
+			normalized.includes('not found') ||
+			normalized.includes('setup') ||
+			normalized.includes('unauthorized'))
+	) {
+		return createRemediation({
+			category: 'needs_setup',
+			shouldEdit: false,
+			reason: 'missing_credential',
+			guidance:
+				'The workflow needs credential setup before it can be saved or verified. Stop code edits and route the user through setup.',
+		});
+	}
+
+	return createRemediation({
+		category: 'code_fixable',
+		shouldEdit: true,
+		reason: failureSignature,
+		guidance:
+			errors.length > 0
+				? errors.join('\n')
+				: 'Fix the workflow SDK code and call workflows(action="create"|"update") again.',
+	});
 }
 
 function blockIfWorkflowBuilderSkillMissing(
@@ -638,11 +727,13 @@ async function reportPlannedBuildFailure({
 	context,
 	errors,
 	failureSignature,
-}: {
-	context: InstanceAiContext;
-	errors: string[];
-	failureSignature: string;
-}): Promise<WorkflowLoopAction | undefined> {
+	category,
+	shouldEdit,
+	reason,
+	guidance,
+	needsUserInput,
+	blockingReason,
+}: WorkflowCodeFailureReport): Promise<WorkflowLoopAction | undefined> {
 	const plannedBuildTask = context.plannedBuildTask;
 	if (!plannedBuildTask) return;
 	const graph = await plannedBuildTask.plannedTaskService.getGraph(plannedBuildTask.threadId);
@@ -657,28 +748,42 @@ async function reportPlannedBuildFailure({
 	}
 
 	const summary = `Workflow build failed before save: ${errors[0] ?? failureSignature}`;
-	const guidance =
+	const defaultGuidance =
 		errors.length > 0
 			? errors.join('\n')
 			: 'Fix the workflow SDK code and call workflows(action="create"|"update") again.';
+	const remediation = plannedBuildFailureRemediation({
+		errors,
+		failureSignature,
+		category,
+		shouldEdit,
+		reason,
+		guidance: guidance ?? defaultGuidance,
+	});
 	const outcome: WorkflowBuildOutcome = {
 		workItemId: plannedBuildTask.workItemId,
 		...(context.runId ? { runId: context.runId } : {}),
 		taskId: plannedBuildTask.taskId,
 		submitted: false,
 		triggerType: 'manual_or_testable',
-		needsUserInput: false,
+		needsUserInput: needsUserInput ?? remediation.category === 'needs_setup',
+		blockingReason,
 		failureSignature,
-		remediation: createRemediation({
-			category: 'code_fixable',
-			shouldEdit: true,
-			reason: failureSignature,
-			guidance,
-		}),
+		remediation,
 		summary,
 	};
 
-	return await plannedBuildTask.workflowTaskService?.reportBuildOutcome(outcome);
+	const action = await plannedBuildTask.workflowTaskService?.reportBuildOutcome(outcome);
+	if (action?.type === 'blocked' || !remediation.shouldEdit) {
+		await plannedBuildTask.plannedTaskService.markFailed?.(
+			plannedBuildTask.threadId,
+			plannedBuildTask.taskId,
+			{
+				error: action?.type === 'blocked' ? action.reason : remediation.guidance,
+			},
+		);
+	}
+	return action;
 }
 
 async function reportPlannedBuildFailureSafely(
@@ -757,6 +862,7 @@ function buildSaveWarnings(
 export function createWorkflowCodeService(context: InstanceAiContext) {
 	// Keep code per workflow so patch-mode never crosses workflow boundaries.
 	const lastCodeByWorkflowId = new Map<string, string>();
+	const inFlightCreates = new Map<string, Promise<WorkflowCodeSaveResult>>();
 	let lastCreateCode: string | null = null;
 
 	function rememberCode(workflowId: string | undefined, code: string): void {
@@ -798,7 +904,35 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 		return baseCode;
 	}
 
-	async function saveWorkflowCode(input: WorkflowCodeActionInput, ctx: WorkflowCodeToolContext) {
+	function getCreateInFlightKey(input: WorkflowCodeCreateInput, json: WorkflowJSON): string {
+		if (context.plannedBuildTask) {
+			return `planned:${context.plannedBuildTask.threadId}:${context.plannedBuildTask.taskId}`;
+		}
+
+		const projectId = input.projectId ?? '';
+		const workflowName = json.name ?? input.name ?? '';
+		const temporary = input.temporary === true ? 'temporary' : 'final';
+		return `adhoc:${projectId}:${workflowName}:${temporary}`;
+	}
+
+	async function runCreateOnce(
+		key: string,
+		createWorkflow: () => Promise<WorkflowCodeSaveResult>,
+	): Promise<WorkflowCodeSaveResult> {
+		const existing = inFlightCreates.get(key);
+		if (existing) return await existing;
+
+		const pending = createWorkflow().finally(() => {
+			inFlightCreates.delete(key);
+		});
+		inFlightCreates.set(key, pending);
+		return await pending;
+	}
+
+	async function saveWorkflowCode(
+		input: WorkflowCodeActionInput,
+		ctx: WorkflowCodeToolContext,
+	): Promise<WorkflowCodeSaveResult> {
 		const blocked = blockSaveIfNeeded(context, input);
 		if (blocked) return blocked;
 		const missingSkill = blockIfWorkflowBuilderSkillMissing(context);
@@ -966,7 +1100,25 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 				name: input.name ?? json.name,
 			};
 			const denied = await confirmSave(context, confirmationInput, ctx);
-			if (denied) return denied;
+			if (denied) {
+				const isResumedDenial =
+					ctx.resumeData !== undefined && ctx.resumeData !== null && !ctx.resumeData.approved;
+				if (isResumedDenial) {
+					await reportPlannedBuildFailureSafely({
+						context,
+						errors: [denied.reason],
+						failureSignature: 'user_denied',
+						category: 'blocked',
+						shouldEdit: false,
+						reason: 'user_denied',
+						guidance:
+							'The user denied saving the workflow. Stop editing and acknowledge the cancellation.',
+						needsUserInput: true,
+						blockingReason: denied.reason,
+					});
+				}
+				return denied;
+			}
 
 			// Remember only after approval. Patch-mode handlers are re-entered on HITL
 			// resume with the original input, so caching a valid pre-approval patch
@@ -1000,47 +1152,50 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 					warnings: buildSaveWarnings(informational, plannedReportError),
 				};
 			} else {
-				const markAsAiTemporary = input.action === 'create' && input.temporary === true;
-				const created = await context.workflowService.createFromWorkflowJSON(json, {
-					...(projectId ? { projectId } : {}),
-					...(markAsAiTemporary ? { markAsAiTemporary: true } : {}),
-				});
-				if (markAsAiTemporary) {
-					const createdWorkflowIds = (context.aiCreatedWorkflowIds ??= new Set<string>());
-					createdWorkflowIds.add(created.id);
-				}
-				const saveMetadata = buildWorkflowSaveMetadata({
-					workflowId: created.id,
-					triggerNodes,
-					mockResult,
-					referencedWorkflowIds,
-					hasUnresolvedPlaceholders: hasPlaceholders,
-				});
-				if (markAsAiTemporary) {
+				const createKey = getCreateInFlightKey(input, json);
+				return await runCreateOnce(createKey, async () => {
+					const markAsAiTemporary = input.temporary === true;
+					const created = await context.workflowService.createFromWorkflowJSON(json, {
+						...(projectId ? { projectId } : {}),
+						...(markAsAiTemporary ? { markAsAiTemporary: true } : {}),
+					});
+					if (markAsAiTemporary) {
+						const createdWorkflowIds = (context.aiCreatedWorkflowIds ??= new Set<string>());
+						createdWorkflowIds.add(created.id);
+					}
+					const saveMetadata = buildWorkflowSaveMetadata({
+						workflowId: created.id,
+						triggerNodes,
+						mockResult,
+						referencedWorkflowIds,
+						hasUnresolvedPlaceholders: hasPlaceholders,
+					});
+					if (markAsAiTemporary) {
+						rememberCreatedCode(created.id, finalCode);
+						return {
+							success: true,
+							workflowId: created.id,
+							workflowName: json.name,
+							temporary: true,
+							...saveMetadata,
+							warnings: buildSaveWarnings(informational),
+						};
+					}
+					const plannedReportError = await reportPlannedBuildSuccessSafely({
+						context,
+						workflowId: created.id,
+						workflowName: json.name,
+						...saveMetadata,
+					});
 					rememberCreatedCode(created.id, finalCode);
 					return {
 						success: true,
 						workflowId: created.id,
 						workflowName: json.name,
-						temporary: true,
 						...saveMetadata,
-						warnings: buildSaveWarnings(informational),
+						warnings: buildSaveWarnings(informational, plannedReportError),
 					};
-				}
-				const plannedReportError = await reportPlannedBuildSuccessSafely({
-					context,
-					workflowId: created.id,
-					workflowName: json.name,
-					...saveMetadata,
 				});
-				rememberCreatedCode(created.id, finalCode);
-				return {
-					success: true,
-					workflowId: created.id,
-					workflowName: json.name,
-					...saveMetadata,
-					warnings: buildSaveWarnings(informational, plannedReportError),
-				};
 			}
 		} catch (error) {
 			const message = `Workflow save failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -1048,6 +1203,9 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 				context,
 				errors: [message],
 				failureSignature: `save_failed:${message}`,
+				category: 'blocked',
+				shouldEdit: false,
+				reason: 'save_failed',
 			});
 			return {
 				success: false,

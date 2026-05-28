@@ -19,6 +19,7 @@
     "eval:workflow-builder": "tsx evaluations/cli/pairwise.ts --filter workflow-builder-",
     "eval:computer-use": "tsx evaluations/computer-use/cli.ts",
     "eval:discovery": "tsx evaluations/discovery/cli.ts",
+    "eval:workflow-builder:discovery": "tsx evaluations/discovery/cli.ts --filter workflow-builder",
     "prompts:print": "tsx scripts/print-prompts.ts"
   },
   "main": "dist/index.js",

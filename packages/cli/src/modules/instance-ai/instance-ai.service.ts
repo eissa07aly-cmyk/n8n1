@@ -2866,7 +2866,6 @@ export class InstanceAiService {
 	): Promise<void> {
 		// Plan approval authorizes the task-family's non-destructive tools,
 		// so detached agents can execute without a redundant second confirmation.
-		const taskContext = this.createPlannedTaskContext(task.kind, context);
 		const conversationContext = buildPlannedTaskConversationContext(task, graph);
 
 		let started: { taskId: string; agentId: string; result: string } | null = null;
@@ -2877,7 +2876,8 @@ export class InstanceAiService {
 					error: 'Workflow build tasks must run through the orchestrator follow-up path.',
 				});
 				return;
-			case 'delegate':
+			case 'delegate': {
+				const taskContext = this.createPlannedTaskContext(task.kind, context);
 				started = await startDetachedDelegateTask(taskContext, {
 					title: task.title,
 					spec: task.spec,
@@ -2886,6 +2886,7 @@ export class InstanceAiService {
 					conversationContext,
 				});
 				break;
+			}
 		}
 
 		if (!started?.taskId) {

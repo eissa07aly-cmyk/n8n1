@@ -3,6 +3,7 @@ import { computed, inject, onBeforeUnmount, onMounted, onUpdated, ref, useCssMod
 import { stripInternalInstanceAiBlocks } from '../internalBlocks';
 import { useThread } from '../instanceAi.store';
 import { parseInstanceAiMarkdown, type InstanceAiMarkdownChunk } from '../markdownParser';
+import type { ResourceEntry } from '../useResourceRegistry';
 import InstanceAiMarkdownChunkComponent from './InstanceAiMarkdownChunk.vue';
 
 const props = defineProps<{
@@ -36,14 +37,31 @@ function isResourceType(value: string): value is ResourceType {
 	return value === 'workflow' || value === 'credential' || value === 'data-table';
 }
 
-/** Icon SVG paths for each resource type — matches the n8n design system icons. */
-const ICON_SVGS: Record<ResourceType, string> = {
-	workflow:
-		'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.17 8H7.83a1.83 1.83 0 1 0 0 3.66h8.34a1.83 1.83 0 0 1 0 3.66H2.83"/><path d="m18 2 4 4-4 4"/><path d="m6 20-4-4 4-4"/></svg>',
-	credential:
-		'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg>',
-	'data-table':
-		'<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>',
+type SvgIconChild = {
+	tag: 'path' | 'circle' | 'rect';
+	attrs: Record<string, string>;
+};
+
+const ICON_DEFINITIONS: Record<ResourceType, SvgIconChild[]> = {
+	workflow: [
+		{
+			tag: 'path',
+			attrs: { d: 'M21.17 8H7.83a1.83 1.83 0 1 0 0 3.66h8.34a1.83 1.83 0 0 1 0 3.66H2.83' },
+		},
+		{ tag: 'path', attrs: { d: 'm18 2 4 4-4 4' } },
+		{ tag: 'path', attrs: { d: 'm6 20-4-4 4-4' } },
+	],
+	credential: [
+		{ tag: 'path', attrs: { d: 'm15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4' } },
+		{ tag: 'path', attrs: { d: 'm21 2-9.6 9.6' } },
+		{ tag: 'circle', attrs: { cx: '7.5', cy: '15.5', r: '5.5' } },
+	],
+	'data-table': [
+		{ tag: 'path', attrs: { d: 'M12 3v18' } },
+		{ tag: 'rect', attrs: { width: '18', height: '18', x: '3', y: '3', rx: '2' } },
+		{ tag: 'path', attrs: { d: 'M3 9h18' } },
+		{ tag: 'path', attrs: { d: 'M3 15h18' } },
+	],
 };
 
 /** URL builders for each resource type — fallbacks when the registry has no projectId. */
@@ -200,6 +218,14 @@ const sources = computed<InstanceAiMarkdownChunk[]>(() =>
 	}),
 );
 
+const resourceEntriesByTypeAndId = computed(() => {
+	const entries = new Map<string, ResourceEntry>();
+	for (const entry of thread.resourceNameIndex.values()) {
+		entries.set(`${entry.type}:${entry.id}`, entry);
+	}
+	return entries;
+});
+
 function handleOpenArtifact(title: string): void {
 	openChatArtifact?.(title);
 }
@@ -275,7 +301,33 @@ function parseInternalResourceLink(pathname: string): InternalResourceLink | und
 }
 
 function findResourceRegistryEntry(type: ResourceType, id: string) {
-	return [...thread.resourceNameIndex.values()].find((r) => r.type === type && r.id === id);
+	return resourceEntriesByTypeAndId.value.get(`${type}:${id}`);
+}
+
+function createResourceIcon(type: ResourceType): SVGSVGElement {
+	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	const attrs: Record<string, string> = {
+		xmlns: 'http://www.w3.org/2000/svg',
+		width: '14',
+		height: '14',
+		viewBox: '0 0 24 24',
+		fill: 'none',
+		stroke: 'currentColor',
+		'stroke-width': '2',
+		'stroke-linecap': 'round',
+		'stroke-linejoin': 'round',
+	};
+	for (const [key, value] of Object.entries(attrs)) {
+		svg.setAttribute(key, value);
+	}
+	for (const child of ICON_DEFINITIONS[type]) {
+		const el = document.createElementNS('http://www.w3.org/2000/svg', child.tag);
+		for (const [key, value] of Object.entries(child.attrs)) {
+			el.setAttribute(key, value);
+		}
+		svg.append(el);
+	}
+	return svg;
 }
 
 /**
@@ -285,13 +337,10 @@ function applyResourceChip(link: HTMLAnchorElement, type: ResourceType): void {
 	link.dataset.resourceChip = type;
 	link.classList.add(styles.resourceChip);
 
-	const iconHtml = ICON_SVGS[type];
-	if (iconHtml) {
-		const iconSpan = document.createElement('span');
-		iconSpan.classList.add(styles.resourceChipIcon);
-		iconSpan.innerHTML = iconHtml;
-		link.prepend(iconSpan);
-	}
+	const iconSpan = document.createElement('span');
+	iconSpan.classList.add(styles.resourceChipIcon);
+	iconSpan.append(createResourceIcon(type));
+	link.prepend(iconSpan);
 }
 
 /**
@@ -443,10 +492,7 @@ function cleanupLinkHandlers(): void {
 }
 
 onMounted(enhanceResourceLinks);
-onUpdated(() => {
-	cleanupLinkHandlers();
-	enhanceResourceLinks();
-});
+onUpdated(enhanceResourceLinks);
 onBeforeUnmount(cleanupLinkHandlers);
 </script>
 

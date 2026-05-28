@@ -1,4 +1,5 @@
 import type { InstanceAiPermissions } from '@n8n/api-types';
+import { mock } from 'jest-mock-extended';
 
 import { executeTool } from '../../__tests__/tool-test-utils';
 import type { InstanceAiContext } from '../../types';
@@ -24,69 +25,78 @@ function createMockContext(
 		permissions?: Partial<InstanceAiPermissions>;
 	} = {},
 ): InstanceAiContext {
-	return {
-		userId: 'user-1',
-		workflowService: {
-			list: jest.fn(),
-			get: jest.fn().mockResolvedValue({
-				id: 'wf1',
-				name: 'Test WF',
-				versionId: 'v1',
-				activeVersionId: null,
-				isArchived: false,
-				createdAt: '2024-01-01',
-				updatedAt: '2024-01-01',
-				nodes: [],
-				connections: {},
-			}),
-			getAsWorkflowJSON: jest.fn().mockResolvedValue({
-				name: 'Test WF',
-				nodes: [],
-				connections: {},
-			}),
-			createFromWorkflowJSON: jest.fn(),
-			updateFromWorkflowJSON: jest.fn(),
-			archive: jest.fn(),
-			unarchive: jest.fn(),
-			publish: jest.fn().mockResolvedValue({ activeVersionId: 'v1' }),
-			unpublish: jest.fn(),
-		},
-		executionService: {
-			list: jest.fn(),
-			run: jest.fn(),
-			getStatus: jest.fn(),
-			getResult: jest.fn(),
-			stop: jest.fn(),
-			getDebugInfo: jest.fn(),
-			getNodeOutput: jest.fn(),
-		},
-		credentialService: {
-			list: jest.fn(),
-			get: jest.fn(),
-			delete: jest.fn(),
-			test: jest.fn(),
-		},
-		nodeService: {
-			listAvailable: jest.fn(),
-			getDescription: jest.fn(),
-			listSearchable: jest.fn(),
-		},
-		dataTableService: {
-			list: jest.fn(),
-			create: jest.fn(),
-			delete: jest.fn(),
-			getSchema: jest.fn(),
-			addColumn: jest.fn(),
-			deleteColumn: jest.fn(),
-			renameColumn: jest.fn(),
-			queryRows: jest.fn(),
-			insertRows: jest.fn(),
-			updateRows: jest.fn(),
-			deleteRows: jest.fn(),
-		},
-		permissions: {},
-		...overrides,
-	} as unknown as InstanceAiContext;
+	const context = mock<InstanceAiContext>();
+	context.userId = 'user-1';
+	context.plannedBuildTask = undefined;
+	context.loadedSkills = undefined;
+	context.allowedUpdateWorkflowIds = undefined;
+	context.aiCreatedWorkflowIds = undefined;
+	context.workflowService.list = jest.fn();
+	context.workflowService.get = jest.fn().mockResolvedValue({
+		id: 'wf1',
+		name: 'Test WF',
+		versionId: 'v1',
+		activeVersionId: null,
+		isArchived: false,
+		createdAt: '2024-01-01',
+		updatedAt: '2024-01-01',
+		nodes: [],
+		connections: {},
+	});
+	context.workflowService.getAsWorkflowJSON = jest.fn().mockResolvedValue({
+		name: 'Test WF',
+		nodes: [],
+		connections: {},
+	});
+	context.workflowService.createFromWorkflowJSON = jest.fn();
+	context.workflowService.updateFromWorkflowJSON = jest.fn();
+	context.workflowService.archive = jest.fn();
+	context.workflowService.unarchive = jest.fn();
+	context.workflowService.publish = jest.fn().mockResolvedValue({ activeVersionId: 'v1' });
+	context.workflowService.unpublish = jest.fn();
+	context.executionService.list = jest.fn();
+	context.executionService.run = jest.fn();
+	context.executionService.getStatus = jest.fn();
+	context.executionService.getResult = jest.fn();
+	context.executionService.stop = jest.fn();
+	context.executionService.getDebugInfo = jest.fn();
+	context.executionService.getNodeOutput = jest.fn();
+	context.credentialService.list = jest.fn();
+	context.credentialService.get = jest.fn();
+	context.credentialService.delete = jest.fn();
+	context.credentialService.test = jest.fn();
+	context.nodeService.listAvailable = jest.fn();
+	context.nodeService.getDescription = jest.fn();
+	context.nodeService.listSearchable = jest.fn();
+	context.dataTableService.list = jest.fn();
+	context.dataTableService.create = jest.fn();
+	context.dataTableService.delete = jest.fn();
+	context.dataTableService.getSchema = jest.fn();
+	context.dataTableService.addColumn = jest.fn();
+	context.dataTableService.deleteColumn = jest.fn();
+	context.dataTableService.renameColumn = jest.fn();
+	context.dataTableService.queryRows = jest.fn();
+	context.dataTableService.insertRows = jest.fn();
+	context.dataTableService.updateRows = jest.fn();
+	context.dataTableService.deleteRows = jest.fn();
+	context.permissions = {};
+	Object.assign(context, overrides);
+	return context;
+}
+
+function createPlannedBuildTask(
+	overrides: Record<string, unknown> = {},
+): NonNullable<InstanceAiContext['plannedBuildTask']> {
+	const plannedBuildTask = mock<NonNullable<InstanceAiContext['plannedBuildTask']>>();
+	plannedBuildTask.threadId = 'thread-1';
+	plannedBuildTask.taskId = 'task-1';
+	plannedBuildTask.workItemId = 'wi_123';
+	plannedBuildTask.title = 'Build Slack to Notion';
+	plannedBuildTask.spec = 'Build it';
+	plannedBuildTask.workflowId = undefined;
+	plannedBuildTask.onSavedWorkflowBuildOutcome = undefined;
+	Object.assign(plannedBuildTask, overrides);
+	return plannedBuildTask;
 }
 
 function getInputSchema(tool: unknown): { safeParse: (input: unknown) => { success: boolean } } {
@@ -251,14 +261,7 @@ describe('workflows tool', () => {
 
 		it('should remind planned create follow-ups that workItemId is not a workflowId', async () => {
 			const context = createMockContext({
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi_123',
-					title: 'Build Slack to Notion',
-					spec: 'Build it',
-					plannedTaskService: {},
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				plannedBuildTask: createPlannedBuildTask(),
 			});
 			context.workflowService.list = jest.fn().mockResolvedValue([]);
 			const tool = createWorkflowsTool(context, {
@@ -282,14 +285,7 @@ describe('workflows tool', () => {
 
 		it('should steer planned create follow-ups away from guessed workflow IDs', async () => {
 			const context = createMockContext({
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi_123',
-					title: 'Build Slack to Notion',
-					spec: 'Build it',
-					plannedTaskService: {},
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				plannedBuildTask: createPlannedBuildTask(),
 			});
 			context.workflowService.get = jest.fn().mockRejectedValue(new Error('not found'));
 			context.workflowService.list = jest.fn().mockResolvedValue([]);

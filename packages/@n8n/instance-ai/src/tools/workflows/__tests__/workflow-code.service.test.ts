@@ -1,3 +1,5 @@
+import { mock } from 'jest-mock-extended';
+
 import type { InstanceAiContext } from '../../../types';
 import type * as WorkflowCodeParserModule from '../../../workflow-builder';
 import { parseAndValidate } from '../../../workflow-builder';
@@ -79,52 +81,56 @@ describe('workflow code create/update approval flow', () => {
 		permissions: Partial<Permissions>,
 		overrides: Partial<InstanceAiContext> = {},
 	): InstanceAiContext {
-		return {
-			userId: 'user-1',
-			permissions: permissions as Permissions,
-			workflowService: {
-				createFromWorkflowJSON: jest.fn().mockResolvedValue({ id: 'created-wf' }),
-				updateFromWorkflowJSON: jest.fn().mockResolvedValue({ id: 'wf-1' }),
-				getAsWorkflowJSON: jest.fn().mockResolvedValue(validWorkflow),
-				clearAiTemporary: jest.fn().mockResolvedValue(undefined),
-			},
-			executionService: {},
-			credentialService: { list: jest.fn().mockResolvedValue([]) },
-			nodeService: {},
-			dataTableService: {},
-			...overrides,
-		} as unknown as InstanceAiContext;
+		const context = mock<InstanceAiContext>();
+		context.userId = 'user-1';
+		context.permissions = permissions as Permissions;
+		context.loadedSkills = undefined;
+		context.plannedBuildTask = undefined;
+		context.allowedUpdateWorkflowIds = undefined;
+		context.aiCreatedWorkflowIds = undefined;
+		context.workflowService.createFromWorkflowJSON = jest
+			.fn()
+			.mockResolvedValue({ id: 'created-wf' });
+		context.workflowService.updateFromWorkflowJSON = jest.fn().mockResolvedValue({ id: 'wf-1' });
+		context.workflowService.getAsWorkflowJSON = jest.fn().mockResolvedValue(validWorkflow);
+		context.workflowService.clearAiTemporary = jest.fn().mockResolvedValue(undefined);
+		context.credentialService.list = jest.fn().mockResolvedValue([]);
+		Object.assign(context, overrides);
+		return context;
 	}
 
 	function makeToolContext(resumeData?: { approved: boolean }): {
 		context: WorkflowCodeToolContext;
 		suspend: jest.Mock;
 	} {
-		const suspend = jest.fn().mockResolvedValue(undefined);
+		const suspend = jest.fn().mockResolvedValue({ suspended: true } as never);
 		return {
 			context: { resumeData, suspend } as WorkflowCodeToolContext,
 			suspend,
 		};
 	}
 
-	function makePlannedBuildTask(overrides: Record<string, unknown> = {}) {
-		return {
-			threadId: 'thread-1',
-			taskId: 'task-1',
-			workItemId: 'wi-1',
-			title: 'Build workflow',
-			spec: 'Build it',
-			plannedTaskService: {
-				getGraph: jest.fn().mockResolvedValue({
-					tasks: [{ id: 'task-1', status: 'running' }],
-				}),
-				markSucceeded: jest.fn(),
-			},
-			workflowTaskService: {
-				reportBuildOutcome: jest.fn().mockResolvedValue({ type: 'continue_building' }),
-			},
-			...overrides,
-		} as unknown as NonNullable<InstanceAiContext['plannedBuildTask']>;
+	function makePlannedBuildTask(
+		overrides: Record<string, unknown> = {},
+	): NonNullable<InstanceAiContext['plannedBuildTask']> {
+		const plannedBuildTask = mock<NonNullable<InstanceAiContext['plannedBuildTask']>>();
+		plannedBuildTask.threadId = 'thread-1';
+		plannedBuildTask.taskId = 'task-1';
+		plannedBuildTask.workItemId = 'wi-1';
+		plannedBuildTask.title = 'Build workflow';
+		plannedBuildTask.spec = 'Build it';
+		plannedBuildTask.workflowId = undefined;
+		plannedBuildTask.onSavedWorkflowBuildOutcome = undefined;
+		plannedBuildTask.plannedTaskService.getGraph = jest.fn().mockResolvedValue({
+			tasks: [{ id: 'task-1', status: 'running' }],
+		});
+		plannedBuildTask.plannedTaskService.markSucceeded = jest.fn().mockResolvedValue(undefined);
+		plannedBuildTask.plannedTaskService.markFailed = jest.fn().mockResolvedValue(undefined);
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = jest
+			.fn()
+			.mockResolvedValue({ type: 'continue_building' });
+		Object.assign(plannedBuildTask, overrides);
+		return plannedBuildTask;
 	}
 
 	beforeEach(() => {
@@ -300,6 +306,184 @@ describe('workflow code create/update approval flow', () => {
 		});
 	});
 
+	it('reports planned build denial as a blocked user_denied outcome', async () => {
+		const reportBuildOutcome = jest
+			.fn<Promise<{ type: 'blocked'; reason: string }>, [WorkflowBuildOutcome]>()
+			.mockResolvedValue({ type: 'blocked', reason: 'User denied the action' });
+		const markFailed = jest.fn().mockResolvedValue(undefined);
+		const plannedBuildTask = makePlannedBuildTask();
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = reportBuildOutcome;
+		plannedBuildTask.plannedTaskService.markFailed = markFailed;
+		const ctx = makeContext(
+			{},
+			{
+				runId: 'run-1',
+				plannedBuildTask,
+			},
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext({ approved: false });
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+
+		expect(result).toEqual({ success: false, denied: true, reason: 'User denied the action' });
+		expect(ctx.workflowService.createFromWorkflowJSON).not.toHaveBeenCalled();
+		expect(reportBuildOutcome).toHaveBeenCalledTimes(1);
+		const outcome = reportBuildOutcome.mock.calls[0][0];
+		expect(outcome).toMatchObject({
+			workItemId: 'wi-1',
+			taskId: 'task-1',
+			runId: 'run-1',
+			submitted: false,
+			needsUserInput: true,
+			blockingReason: 'User denied the action',
+			failureSignature: 'user_denied',
+			remediation: {
+				category: 'blocked',
+				shouldEdit: false,
+				reason: 'user_denied',
+			},
+		});
+		expect(markFailed).toHaveBeenCalledWith('thread-1', 'task-1', {
+			error: 'User denied the action',
+		});
+	});
+
+	it('classifies planned save failures as blocked instead of editable code fixes', async () => {
+		const reportBuildOutcome = jest
+			.fn<Promise<{ type: 'blocked'; reason: string }>, [WorkflowBuildOutcome]>()
+			.mockResolvedValue({ type: 'blocked', reason: 'Workflow save failed: storage unavailable' });
+		const markFailed = jest.fn().mockResolvedValue(undefined);
+		const plannedBuildTask = makePlannedBuildTask();
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = reportBuildOutcome;
+		plannedBuildTask.plannedTaskService.markFailed = markFailed;
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{
+				plannedBuildTask,
+			},
+		);
+		jest
+			.mocked(ctx.workflowService.createFromWorkflowJSON)
+			.mockRejectedValueOnce(new Error('storage unavailable'));
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+
+		expect(result).toEqual({
+			success: false,
+			errors: [
+				'Workflow save failed: storage unavailable',
+				'Repair guard stopped automatic edits: Workflow save failed: storage unavailable',
+			],
+		});
+		const outcome = reportBuildOutcome.mock.calls[0][0];
+		expect(outcome).toMatchObject({
+			submitted: false,
+			needsUserInput: false,
+			failureSignature: 'save_failed:Workflow save failed: storage unavailable',
+			remediation: {
+				category: 'blocked',
+				shouldEdit: false,
+				reason: 'save_failed',
+			},
+		});
+		expect(markFailed).toHaveBeenCalledWith('thread-1', 'task-1', {
+			error: 'Workflow save failed: storage unavailable',
+		});
+	});
+
+	it('classifies missing credential pre-save failures as setup blockers', async () => {
+		mockedParseAndValidate.mockImplementationOnce(() => {
+			throw new Error('Missing credential Slack API credential not found');
+		});
+		const reportBuildOutcome = jest
+			.fn<Promise<{ type: 'blocked'; reason: string }>, [WorkflowBuildOutcome]>()
+			.mockResolvedValue({ type: 'blocked', reason: 'Set up Slack credentials' });
+		const plannedBuildTask = makePlannedBuildTask();
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = reportBuildOutcome;
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{
+				plannedBuildTask,
+			},
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const result = await service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+
+		expect(result).toEqual({
+			success: false,
+			errors: [
+				'Missing credential Slack API credential not found',
+				'Repair guard stopped automatic edits: Set up Slack credentials',
+			],
+		});
+		expect(reportBuildOutcome.mock.calls[0][0]).toMatchObject({
+			submitted: false,
+			needsUserInput: true,
+			remediation: {
+				category: 'needs_setup',
+				shouldEdit: false,
+				reason: 'missing_credential',
+			},
+		});
+	});
+
+	it('classifies missing existing workflow patch bases as code-fixable', async () => {
+		const reportBuildOutcome = jest
+			.fn<Promise<{ type: 'continue_building' }>, [WorkflowBuildOutcome]>()
+			.mockResolvedValue({ type: 'continue_building' });
+		const plannedBuildTask = makePlannedBuildTask();
+		plannedBuildTask.workflowId = 'wf-1';
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = reportBuildOutcome;
+		const ctx = makeContext(
+			{ updateWorkflow: 'always_allow' },
+			{
+				plannedBuildTask,
+				allowedUpdateWorkflowIds: new Set(['wf-1']),
+			},
+		);
+		jest
+			.mocked(ctx.workflowService.getAsWorkflowJSON)
+			.mockRejectedValueOnce(new Error('Workflow not found'));
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const result = await service.update(
+			{
+				action: 'update',
+				workflowId: 'wf-1',
+				patches: [{ old_str: 'Lead intake', new_str: 'Updated intake' }],
+			},
+			context,
+		);
+
+		expect(result).toEqual({
+			success: false,
+			errors: ['Patch mode: could not fetch workflow. Send full code instead.'],
+		});
+		expect(reportBuildOutcome.mock.calls[0][0]).toMatchObject({
+			submitted: false,
+			failureSignature: 'patch_fetch_failed',
+			remediation: {
+				category: 'code_fixable',
+				shouldEdit: true,
+			},
+		});
+	});
+
 	it('adds expression-prefix guidance to validation errors', async () => {
 		mockedParseAndValidate.mockReturnValueOnce({
 			workflow: { ...validWorkflow },
@@ -385,6 +569,38 @@ describe('workflow code create/update approval flow', () => {
 			workflowId: 'created-wf',
 			workflowName: 'Lead intake',
 		});
+	});
+
+	it('deduplicates concurrent ad-hoc creates for the same workflow name', async () => {
+		const ctx = makeContext({ createWorkflow: 'always_allow' });
+		let resolveCreate!: (value: { id: string }) => void;
+		jest.mocked(ctx.workflowService.createFromWorkflowJSON).mockReturnValue(
+			new Promise((resolve) => {
+				resolveCreate = resolve;
+			}),
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const first = service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+		const second = service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalledTimes(1);
+		resolveCreate({ id: 'created-wf' });
+		const results = await Promise.all([first, second]);
+
+		expect(results).toEqual([
+			expect.objectContaining({ success: true, workflowId: 'created-wf' }),
+			expect.objectContaining({ success: true, workflowId: 'created-wf' }),
+		]);
+		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalledTimes(1);
 	});
 
 	it('returns direct save routing metadata for setup and verification', async () => {
@@ -700,14 +916,7 @@ describe('workflow code create/update approval flow', () => {
 		const ctx = makeContext(
 			{ createWorkflow: 'always_allow' },
 			{
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi-1',
-					title: 'Build workflow',
-					spec: 'Build it',
-					plannedTaskService: { markSucceeded: jest.fn() },
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				plannedBuildTask: makePlannedBuildTask(),
 			},
 		);
 		const service = createWorkflowCodeService(ctx);
@@ -777,11 +986,11 @@ describe('workflow code create/update approval flow', () => {
 			{ allowedUpdateWorkflowIds: new Set(['wf-allowed']) },
 		);
 		const service = createWorkflowCodeService(ctx);
-		const suspend = jest.fn().mockRejectedValue(new Error('suspended'));
+		const { context, suspend } = makeToolContext();
 
 		const result = await service.update(
 			{ action: 'update', code: validCode, workflowId: 'wf-other', name: 'Lead intake' },
-			{ resumeData: undefined, suspend } as WorkflowCodeToolContext,
+			context,
 		);
 
 		expect(suspend).toHaveBeenCalledWith(
@@ -791,30 +1000,23 @@ describe('workflow code create/update approval flow', () => {
 			}),
 		);
 		expect(ctx.workflowService.updateFromWorkflowJSON).not.toHaveBeenCalled();
-		expect(result).toEqual({ success: false, errors: ['Workflow save failed: suspended'] });
+		expect(result).toEqual({ suspended: true });
 	});
 
 	it('rejects update calls for planned create tasks before asking for approval', async () => {
 		const ctx = makeContext(
 			{ createWorkflow: 'always_allow', updateWorkflow: 'always_allow' },
 			{
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi-1',
-					title: 'Build workflow',
-					spec: 'Build it',
-					plannedTaskService: { markSucceeded: jest.fn() },
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				plannedBuildTask: makePlannedBuildTask(),
 				allowedUpdateWorkflowIds: new Set(),
 			},
 		);
 		const service = createWorkflowCodeService(ctx);
-		const suspend = jest.fn().mockRejectedValue(new Error('suspended'));
+		const { context, suspend } = makeToolContext();
 
 		const result = await service.update(
 			{ action: 'update', code: validCode, workflowId: 'wi-1', name: 'Lead intake' },
-			{ resumeData: undefined, suspend } as WorkflowCodeToolContext,
+			context,
 		);
 
 		expect(suspend).not.toHaveBeenCalled();
@@ -832,24 +1034,20 @@ describe('workflow code create/update approval flow', () => {
 		const ctx = makeContext(
 			{ createWorkflow: 'always_allow', updateWorkflow: 'always_allow' },
 			{
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi-1',
+				plannedBuildTask: makePlannedBuildTask({
 					title: 'Update workflow',
 					spec: 'Update it',
 					workflowId: 'wf-1',
-					plannedTaskService: { markSucceeded: jest.fn() },
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				}),
 				allowedUpdateWorkflowIds: new Set(['wf-1']),
 			},
 		);
 		const service = createWorkflowCodeService(ctx);
-		const suspend = jest.fn().mockRejectedValue(new Error('suspended'));
+		const { context, suspend } = makeToolContext();
 
 		const result = await service.create(
 			{ action: 'create', code: validCode, name: 'Lead intake' },
-			{ resumeData: undefined, suspend } as WorkflowCodeToolContext,
+			context,
 		);
 
 		expect(suspend).not.toHaveBeenCalled();
@@ -867,24 +1065,20 @@ describe('workflow code create/update approval flow', () => {
 		const ctx = makeContext(
 			{ createWorkflow: 'always_allow', updateWorkflow: 'always_allow' },
 			{
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi-1',
+				plannedBuildTask: makePlannedBuildTask({
 					title: 'Update workflow',
 					spec: 'Update it',
 					workflowId: 'wf-1',
-					plannedTaskService: { markSucceeded: jest.fn() },
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				}),
 				allowedUpdateWorkflowIds: new Set(['wf-1']),
 			},
 		);
 		const service = createWorkflowCodeService(ctx);
-		const suspend = jest.fn().mockRejectedValue(new Error('suspended'));
+		const { context, suspend } = makeToolContext();
 
 		const result = await service.update(
 			{ action: 'update', code: validCode, workflowId: 'wf-other', name: 'Lead intake' },
-			{ resumeData: undefined, suspend } as WorkflowCodeToolContext,
+			context,
 		);
 
 		expect(suspend).not.toHaveBeenCalled();
@@ -899,25 +1093,17 @@ describe('workflow code create/update approval flow', () => {
 	});
 
 	it('returns a successful save with warning when planned build reporting fails after save', async () => {
+		const plannedBuildTask = makePlannedBuildTask();
+		plannedBuildTask.plannedTaskService.markSucceeded = jest
+			.fn()
+			.mockRejectedValue(new Error('storage unavailable'));
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = jest
+			.fn()
+			.mockResolvedValue({ type: 'done' });
 		const ctx = makeContext(
 			{ createWorkflow: 'always_allow' },
 			{
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi-1',
-					title: 'Build workflow',
-					spec: 'Build it',
-					plannedTaskService: {
-						getGraph: jest.fn().mockResolvedValue({
-							tasks: [{ id: 'task-1', status: 'running' }],
-						}),
-						markSucceeded: jest.fn().mockRejectedValue(new Error('storage unavailable')),
-					},
-					workflowTaskService: {
-						reportBuildOutcome: jest.fn().mockResolvedValue({ type: 'done' }),
-					},
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				plannedBuildTask,
 			},
 		);
 		const service = createWorkflowCodeService(ctx);
@@ -943,24 +1129,14 @@ describe('workflow code create/update approval flow', () => {
 		const onSavedWorkflowBuildOutcome = jest.fn();
 		const markSucceeded = jest.fn();
 		const reportBuildOutcome = jest.fn().mockRejectedValue(new Error('loop storage unavailable'));
+		const plannedBuildTask = makePlannedBuildTask();
+		plannedBuildTask.plannedTaskService.markSucceeded = markSucceeded;
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = reportBuildOutcome;
+		plannedBuildTask.onSavedWorkflowBuildOutcome = onSavedWorkflowBuildOutcome;
 		const ctx = makeContext(
 			{ createWorkflow: 'always_allow' },
 			{
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi-1',
-					title: 'Build workflow',
-					spec: 'Build it',
-					plannedTaskService: {
-						getGraph: jest.fn().mockResolvedValue({
-							tasks: [{ id: 'task-1', status: 'running' }],
-						}),
-						markSucceeded,
-					},
-					workflowTaskService: { reportBuildOutcome },
-					onSavedWorkflowBuildOutcome,
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				plannedBuildTask,
 			},
 		);
 		const service = createWorkflowCodeService(ctx);
@@ -986,23 +1162,13 @@ describe('workflow code create/update approval flow', () => {
 	it('reports planned build success after the workflow save succeeds', async () => {
 		const markSucceeded = jest.fn().mockResolvedValue(undefined);
 		const reportBuildOutcome = jest.fn().mockResolvedValue({ type: 'done' });
+		const plannedBuildTask = makePlannedBuildTask();
+		plannedBuildTask.plannedTaskService.markSucceeded = markSucceeded;
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = reportBuildOutcome;
 		const ctx = makeContext(
 			{ createWorkflow: 'always_allow' },
 			{
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi-1',
-					title: 'Build workflow',
-					spec: 'Build it',
-					plannedTaskService: {
-						getGraph: jest.fn().mockResolvedValue({
-							tasks: [{ id: 'task-1', status: 'running' }],
-						}),
-						markSucceeded,
-					},
-					workflowTaskService: { reportBuildOutcome },
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				plannedBuildTask,
 			},
 		);
 		const service = createWorkflowCodeService(ctx);
@@ -1023,30 +1189,23 @@ describe('workflow code create/update approval flow', () => {
 		const markSucceeded = jest.fn();
 		const reportBuildOutcome = jest.fn();
 		const onSavedWorkflowBuildOutcome = jest.fn();
+		const plannedBuildTask = makePlannedBuildTask();
+		plannedBuildTask.plannedTaskService.getGraph = jest.fn().mockResolvedValue({
+			tasks: [
+				{
+					id: 'task-1',
+					status: 'succeeded',
+					outcome: { workflowId: 'wf-a' },
+				},
+			],
+		});
+		plannedBuildTask.plannedTaskService.markSucceeded = markSucceeded;
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = reportBuildOutcome;
+		plannedBuildTask.onSavedWorkflowBuildOutcome = onSavedWorkflowBuildOutcome;
 		const ctx = makeContext(
 			{ createWorkflow: 'always_allow' },
 			{
-				plannedBuildTask: {
-					threadId: 'thread-1',
-					taskId: 'task-1',
-					workItemId: 'wi-1',
-					title: 'Build workflow',
-					spec: 'Build it',
-					plannedTaskService: {
-						getGraph: jest.fn().mockResolvedValue({
-							tasks: [
-								{
-									id: 'task-1',
-									status: 'succeeded',
-									outcome: { workflowId: 'wf-a' },
-								},
-							],
-						}),
-						markSucceeded,
-					},
-					workflowTaskService: { reportBuildOutcome },
-					onSavedWorkflowBuildOutcome,
-				} as unknown as InstanceAiContext['plannedBuildTask'],
+				plannedBuildTask,
 			},
 		);
 		const service = createWorkflowCodeService(ctx);
@@ -1072,9 +1231,10 @@ describe('workflow code create/update approval flow', () => {
 			patches: [{ old_str: 'Lead intake', new_str: 'Updated intake' }],
 		};
 
-		const suspend = jest.fn().mockRejectedValue(new Error('suspended'));
-		await service.update(input, { resumeData: undefined, suspend } as WorkflowCodeToolContext);
+		const { context: firstContext, suspend } = makeToolContext();
+		const suspendResult = await service.update(input, firstContext);
 
+		expect(suspendResult).toEqual({ suspended: true });
 		expect(ctx.workflowService.updateFromWorkflowJSON).not.toHaveBeenCalled();
 
 		const result = await service.update(input, {

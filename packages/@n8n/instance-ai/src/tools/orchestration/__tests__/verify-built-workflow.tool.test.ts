@@ -695,6 +695,41 @@ describe('verify-built-workflow tool', () => {
 		expect(result.nodePreviews).toHaveLength(2);
 	});
 
+	it('does not verify a run that only executed trigger nodes', async () => {
+		const { ctx, updateBuildOutcome } = makeContext(
+			makeBuildOutcome({
+				triggerNodes: [{ nodeName: 'Webhook Trigger', nodeType: 'n8n-nodes-base.webhook' }],
+			}),
+			{
+				executionId: 'exec-trigger-only',
+				status: 'success',
+				data: { 'Webhook Trigger': [{ json: { body: { event: 'signup' } } }] },
+			},
+		);
+
+		const result = await runTool(ctx, { workItemId: 'wi-1', workflowId: 'wf-1' });
+
+		expect(result.success).toBe(false);
+		expect(result.error).toContain('only executed trigger nodes');
+		expect(result.remediation).toMatchObject({
+			category: 'code_fixable',
+			shouldEdit: true,
+			reason: 'runtime_failure',
+		});
+		expect(updateBuildOutcome.mock.calls[0][1].verification).toMatchObject({
+			attempted: true,
+			success: false,
+			status: 'success',
+			failureSignature:
+				'Verification only executed trigger nodes; no downstream workflow nodes produced output.',
+			evidence: {
+				nodesExecuted: ['Webhook Trigger'],
+				errorMessage:
+					'Verification only executed trigger nodes; no downstream workflow nodes produced output.',
+			},
+		});
+	});
+
 	it('persists a failure verification record with failureSignature', async () => {
 		const { ctx, updateBuildOutcome } = makeContext(makeBuildOutcome(), {
 			executionId: 'exec-2',
@@ -760,7 +795,7 @@ describe('verify-built-workflow tool', () => {
 		expect(updateBuildOutcome).not.toHaveBeenCalled();
 	});
 
-	it('swallows storage errors when persisting verification', async () => {
+	it('logs and continues when persisting verification fails', async () => {
 		const { ctx, updateBuildOutcome } = makeContext(makeBuildOutcome(), {
 			executionId: 'exec-3',
 			status: 'success',
@@ -771,6 +806,14 @@ describe('verify-built-workflow tool', () => {
 
 		expect(result.success).toBe(true);
 		expect(result.executionId).toBe('exec-3');
+		expect(ctx.logger.warn).toHaveBeenCalledWith(
+			'verify-built-workflow: failed to persist verification record',
+			expect.objectContaining({
+				workItemId: 'wi-1',
+				workflowId: 'wf-1',
+				error: 'storage unavailable',
+			}),
+		);
 	});
 
 	it('counts wrapped execution output items in previews and persisted evidence', async () => {

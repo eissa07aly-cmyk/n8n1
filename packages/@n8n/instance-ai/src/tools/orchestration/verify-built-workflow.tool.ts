@@ -204,6 +204,30 @@ function countProducedOutputRows(
 	return count;
 }
 
+function toExecutionPinData(
+	pinData: WorkflowBuildOutcome['verificationPinData'],
+): Record<string, unknown[]> | undefined {
+	return pinData;
+}
+
+function getNodesExecuted(resultData: Record<string, unknown> | undefined): string[] | undefined {
+	if (!resultData) return undefined;
+	const nodes = Object.keys(resultData);
+	return nodes.length > 0 ? nodes : undefined;
+}
+
+function executedOnlyTriggerNodes(
+	nodesExecuted: string[] | undefined,
+	buildOutcome: WorkflowBuildOutcome,
+): boolean {
+	if (!nodesExecuted?.length) return false;
+
+	const triggerNodeNames = new Set((buildOutcome.triggerNodes ?? []).map((node) => node.nodeName));
+	if (triggerNodeNames.size === 0) return false;
+
+	return nodesExecuted.every((nodeName) => triggerNodeNames.has(nodeName));
+}
+
 /**
  * Per-table pre-verify snapshot. A `Set` is a complete list of row IDs that
  * existed before the run. `null` means the snapshot could not be built (empty
@@ -643,7 +667,7 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 			try {
 				result = await context.domainContext.executionService.run(workflowId, input.inputData, {
 					timeout: input.timeout,
-					pinData: buildOutcome.verificationPinData as Record<string, unknown[]> | undefined,
+					pinData: toExecutionPinData(buildOutcome.verificationPinData),
 				});
 			} catch (error) {
 				const errorMessage = error instanceof Error ? error.message : String(error);
@@ -659,8 +683,15 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 							verifiedAt: new Date().toISOString(),
 						},
 					});
-				} catch {
-					// intentional: verification record persistence is advisory
+				} catch (persistError) {
+					context.logger.warn(
+						'verify-built-workflow: failed to persist error verification record',
+						{
+							workItemId: input.workItemId,
+							workflowId,
+							error: persistError instanceof Error ? persistError.message : String(persistError),
+						},
+					);
 				}
 				if (!remediation.shouldEdit) {
 					await persistTerminalVerificationVerdict({
@@ -686,13 +717,24 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 			// falsely retry verified form workflows and prevented checkpoints from
 			// reusing builder evidence. Only treat `waiting` with no output rows AND
 			// no error as indeterminate (falls through to failure).
-			const hasOutput = result.data ? Object.keys(result.data).length > 0 : false;
-			const success =
+			const nodesExecuted = getNodesExecuted(result.data);
+			const hasOutput = nodesExecuted !== undefined;
+			const baseSuccess =
 				result.status === 'success' || (result.status === 'waiting' && !result.error && hasOutput);
+			const triggerOnlyFailure =
+				baseSuccess && executedOnlyTriggerNodes(nodesExecuted, buildOutcome);
+			const triggerOnlyError = triggerOnlyFailure
+				? 'Verification only executed trigger nodes; no downstream workflow nodes produced output.'
+				: undefined;
+			const success = baseSuccess && !triggerOnlyFailure;
 
 			const failureRemediation = success
 				? undefined
-				: classifyVerificationFailure(result.error, result.status, buildOutcome);
+				: classifyVerificationFailure(
+						triggerOnlyError ?? result.error,
+						result.status,
+						buildOutcome,
+					);
 			const budgetRemediation =
 				failureRemediation?.shouldEdit === true
 					? terminalRemediationFromState(stateBefore, context.runId)
@@ -712,26 +754,29 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 
 			// Persist a structured verification record onto the build outcome so the
 			// checkpoint follow-up turn can reuse it instead of re-running verify.
-			// Best-effort: swallow storage errors so they don't mask the verify result.
+			// Best-effort: log storage errors so they don't mask the verify result.
 			try {
-				const nodesExecuted = result.data ? Object.keys(result.data) : undefined;
 				await context.workflowTaskService.updateBuildOutcome(input.workItemId, {
 					verification: {
 						attempted: true,
 						success,
 						executionId: result.executionId || undefined,
 						status: result.status,
-						failureSignature: success ? undefined : result.error,
+						failureSignature: success ? undefined : (triggerOnlyError ?? result.error),
 						evidence: {
 							nodesExecuted: nodesExecuted && nodesExecuted.length > 0 ? nodesExecuted : undefined,
 							producedOutputRows: countProducedOutputRows(result.data),
-							errorMessage: success ? undefined : result.error,
+							errorMessage: success ? undefined : (triggerOnlyError ?? result.error),
 						},
 						verifiedAt: new Date().toISOString(),
 					},
 				});
-			} catch {
-				// intentional: verification record persistence is advisory
+			} catch (persistError) {
+				context.logger.warn('verify-built-workflow: failed to persist verification record', {
+					workItemId: input.workItemId,
+					workflowId,
+					error: persistError instanceof Error ? persistError.message : String(persistError),
+				});
 			}
 
 			if (cleanedRows > 0) {
@@ -753,7 +798,6 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 			}
 
 			const maxDataChars = input.maxDataChars ?? DEFAULT_NODE_PREVIEW_CHARS;
-			const nodesExecuted = result.data ? Object.keys(result.data) : undefined;
 			return {
 				executionId: result.executionId || undefined,
 				success,
@@ -761,7 +805,7 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 				nodesExecuted,
 				nodePreviews: buildNodePreviews(result.data, maxDataChars),
 				...(input.includeData ? { data: result.data } : {}),
-				error: result.error,
+				error: triggerOnlyError ?? result.error,
 				remediation,
 				guidance: remediation?.guidance,
 			};

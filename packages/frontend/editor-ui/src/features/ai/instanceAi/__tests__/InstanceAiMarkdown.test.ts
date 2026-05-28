@@ -228,9 +228,13 @@ describe('InstanceAiMarkdown', () => {
 		expect(firstLink).not.toBeNull();
 		await fireEvent.click(firstLink as HTMLAnchorElement);
 
+		const removeListenerSpy = vi.spyOn(HTMLAnchorElement.prototype, 'removeEventListener');
 		await rerender({ content: 'Open My Workflow' });
 		const updatedLink = container.querySelector('a');
 		expect(updatedLink).not.toBeNull();
+		expect(updatedLink?.querySelectorAll('svg')).toHaveLength(1);
+		expect(removeListenerSpy).not.toHaveBeenCalled();
+		removeListenerSpy.mockRestore();
 		await fireEvent.click(updatedLink as HTMLAnchorElement);
 
 		expect(openWorkflowPreview).toHaveBeenCalledTimes(2);
