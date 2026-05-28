@@ -11,22 +11,11 @@ import { useToast } from '@/app/composables/useToast';
 import { getDataTableRowsApi } from '@/features/core/dataTable/dataTable.api';
 import { listEvaluationConfigs } from '../../evaluation.api';
 import { useAiRootNodes } from '../../composables/useAiRootNodes';
-import { CANNED_METRIC_EXPECTED_FIELDS, type CannedMetricKey } from '../../evaluation.constants';
-
-// Reverse map of the chathub→langchain table that lives in
-// buildEvaluationConfigDto.ts. We can't import that table (it's private to
-// the module) but it's tiny; mirroring the inverse here is cheaper than
-// exposing the forward map. Keys use the camelCase form that
-// `ChatHubLLMProvider` expects so they round-trip through the typed store.
-const NODE_TYPE_TO_CHATHUB_PROVIDER: Record<string, JudgeSelection['provider']> = {
-	'@n8n/n8n-nodes-langchain.lmChatOpenAi': 'openai',
-	'@n8n/n8n-nodes-langchain.lmChatAnthropic': 'anthropic',
-	'@n8n/n8n-nodes-langchain.lmChatGoogleGemini': 'google',
-	'@n8n/n8n-nodes-langchain.lmChatAzureOpenAi': 'azureOpenAi',
-	'@n8n/n8n-nodes-langchain.lmChatAwsBedrock': 'awsBedrock',
-	'@n8n/n8n-nodes-langchain.lmChatOllama': 'ollama',
-	'@n8n/n8n-nodes-langchain.lmChatVercelAiGateway': 'vercelAiGateway',
-};
+import {
+	CANNED_METRIC_EXPECTED_FIELDS,
+	LM_SUBNODE_TYPE_TO_CHATHUB_PROVIDER,
+	type CannedMetricKey,
+} from '../../evaluation.constants';
 
 const CANNED_METRIC_KEYS = new Set<CannedMetricKey>([
 	'correctness',
@@ -167,7 +156,7 @@ function decodeCannedMetric(metric: EvaluationMetric): CannedDecode | undefined 
 	if (metric.type === 'llm_judge' && (name === 'correctness' || name === 'helpfulness')) {
 		const preset: LlmJudgeMetricPreset = metric.config.preset;
 		if (preset !== name) return undefined;
-		const provider = NODE_TYPE_TO_CHATHUB_PROVIDER[metric.config.provider];
+		const provider = LM_SUBNODE_TYPE_TO_CHATHUB_PROVIDER[metric.config.provider];
 		if (!provider) return { key: name };
 		return {
 			key: name,

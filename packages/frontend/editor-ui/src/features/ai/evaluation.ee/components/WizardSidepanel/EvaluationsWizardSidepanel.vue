@@ -44,6 +44,7 @@ import {
 } from '../../evaluation.constants';
 import { useSliceInputs } from '../../composables/useSliceInputs';
 import { useAiRootNodes } from '../../composables/useAiRootNodes';
+import { useDefaultJudgeSelection } from '../../composables/useDefaultJudgeSelection';
 import { useWizardPersistence } from './useWizardPersistence';
 import { useWizardHydration } from './useWizardHydration';
 import CustomScorerModal from './CustomScorerModal.vue';
@@ -121,6 +122,28 @@ const nodeNameOptions = computed(() =>
 );
 
 const aiRootNodes = useAiRootNodes();
+const defaultJudgeSelection = useDefaultJudgeSelection();
+
+// Seed every LLM-judge slot with the first language-model sub-node found in
+// the workflow whenever the wizard is open. Only fills slots the user (or
+// hydration) hasn't already populated — same "preserve user edits" guard as
+// the `aiNodeName` seeding below. Watching `judgeSelectionByMetric` is what
+// keeps this responsive to hydration: when `applyConfigToStore` swaps the map
+// in with only some keys present, we re-run and back-fill the rest. If the
+// workflow has no LM sub-node, or its credential isn't visible to the
+// current user, `defaultJudgeSelection` is null and we leave the slots empty
+// so the chat-hub picker shows its own auto-selected default.
+watch(
+	[() => wizardStore.isOpen, defaultJudgeSelection, judgeSelectionByMetric],
+	([isOpen, defaultSelection, currentSelections]) => {
+		if (!isOpen || !defaultSelection) return;
+		for (const key of LLM_JUDGE_METRIC_KEYS) {
+			if (currentSelections[key]) continue;
+			wizardStore.setJudgeSelection(key, defaultSelection);
+		}
+	},
+	{ immediate: true },
+);
 
 // Seed `aiNodeName` with the first AI root node the moment the user reaches
 // step 2 (and only if the store doesn't already have a pick — preserves user

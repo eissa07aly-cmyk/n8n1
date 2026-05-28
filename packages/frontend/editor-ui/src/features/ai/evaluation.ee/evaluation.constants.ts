@@ -1,9 +1,26 @@
+import type { ChatHubLLMProvider } from '@n8n/api-types';
+
 import type { TestRunRecord } from './evaluation.api';
 import { type IconName } from '@n8n/design-system/components/N8nIcon/icons';
 import type { IconColor } from '@n8n/design-system/types/icon';
 
 import type { BaseTextKey } from '@n8n/i18n';
 import type { MetricCategory } from './evaluation.utils';
+
+// Langchain `lmChat*` node types → ChatHubLLMProvider key. Used to bridge AI
+// sub-nodes a user has placed on the canvas (e.g. an OpenAI Chat Model feeding
+// an Agent) and the chat-hub model picker the wizard's LLM-judge step renders.
+// Keys must match the actual node `type` strings; values must remain
+// ChatHubLLMProvider members (camelCase) so JudgeSelection round-trips.
+export const LM_SUBNODE_TYPE_TO_CHATHUB_PROVIDER: Record<string, ChatHubLLMProvider> = {
+	'@n8n/n8n-nodes-langchain.lmChatOpenAi': 'openai',
+	'@n8n/n8n-nodes-langchain.lmChatAnthropic': 'anthropic',
+	'@n8n/n8n-nodes-langchain.lmChatGoogleGemini': 'google',
+	'@n8n/n8n-nodes-langchain.lmChatAzureOpenAi': 'azureOpenAi',
+	'@n8n/n8n-nodes-langchain.lmChatAwsBedrock': 'awsBedrock',
+	'@n8n/n8n-nodes-langchain.lmChatOllama': 'ollama',
+	'@n8n/n8n-nodes-langchain.lmChatVercelAiGateway': 'vercelAiGateway',
+};
 
 // "AI root nodes" — langchain nodes that produce a final output worth
 // evaluating. Sub-nodes (memory, tools, embeddings) are intentionally

@@ -8,8 +8,16 @@ import EvaluationsWizardSidepanel from './EvaluationsWizardSidepanel.vue';
 import { useEvaluationsWizardSidepanelStore } from '../../wizardSidepanel.store';
 import { useEvaluationStore } from '../../evaluation.store';
 import { CANNED_METRICS } from '../../evaluation.constants';
+import { useCredentialsStore } from '@/features/credentials/credentials.store';
 
-const mockAllNodes = ref<Array<{ name: string; type: string }>>([]);
+const mockAllNodes = ref<
+	Array<{
+		name: string;
+		type: string;
+		parameters?: Record<string, unknown>;
+		credentials?: Record<string, { id: string | null; name: string }>;
+	}>
+>([]);
 vi.mock('@/app/stores/workflowDocument.store', () => ({
 	injectWorkflowDocumentStore: () => ({
 		value: {
@@ -299,6 +307,114 @@ describe('EvaluationsWizardSidepanel', () => {
 
 		const { getByTestId } = renderComponent();
 		expect(getByTestId('evaluations-wizard-sidepanel-next')).toBeEnabled();
+	});
+
+	// Verifies the wiring between useDefaultJudgeSelection and the wizard
+	// store: when the wizard opens against a workflow that already has an
+	// lmChat sub-node with a valid credential, every LLM-judge slot should be
+	// pre-filled from that sub-node so the user doesn't have to repeat
+	// themselves. Composable-level edge cases (resourceLocator vs string,
+	// missing creds, canvas-order tie-breaks) live in
+	// `useDefaultJudgeSelection.test.ts`; this test only proves the watcher
+	// actually runs.
+	it('seeds LLM-judge slots from the first lmChat sub-node when the wizard opens', () => {
+		const store = useEvaluationsWizardSidepanelStore();
+		mockAllNodes.value = [
+			{ name: 'When clicking ‘Test workflow’', type: 'n8n-nodes-base.manualTrigger' },
+			{ name: 'AI Agent', type: '@n8n/n8n-nodes-langchain.agent' },
+			{
+				name: 'OpenAI Chat Model',
+				type: '@n8n/n8n-nodes-langchain.lmChatOpenAi',
+				parameters: { model: { __rl: true, mode: 'list', value: 'gpt-4o-mini' } },
+				credentials: { openAiApi: { id: 'cred-openai', name: 'OpenAI account' } },
+			},
+		];
+
+		// Seed the credentials store so the composable's "credential must be
+		// readable by the current user" gate passes. `$patch` lets us mutate
+		// store state directly in tests without going through fetch APIs.
+		// `setCredentials` is the only path that writes into `state.credentials`
+		// without going through the network; using it keeps the test honest
+		// about the store contract rather than reaching into private state.
+		const credentialsStore = useCredentialsStore();
+		credentialsStore.setCredentials([
+			{
+				id: 'cred-openai',
+				name: 'OpenAI',
+				type: 'openAiApi',
+				createdAt: '',
+				updatedAt: '',
+				scopes: [],
+				homeProject: undefined,
+				sharedWithProjects: [],
+				isManaged: false,
+			} as unknown as Parameters<typeof credentialsStore.setCredentials>[0][number],
+		]);
+
+		store.open(0);
+		renderComponent();
+
+		const expected = {
+			provider: 'openai',
+			credentialId: 'cred-openai',
+			model: 'gpt-4o-mini',
+		};
+		expect(store.judgeSelectionByMetric.correctness).toEqual(expected);
+		expect(store.judgeSelectionByMetric.helpfulness).toEqual(expected);
+	});
+
+	// Regression guard: if the user already picked a model for a metric, the
+	// defaulting watcher must not clobber it on re-open or hydration.
+	it('does NOT overwrite an LLM-judge slot the user (or hydration) already populated', () => {
+		const store = useEvaluationsWizardSidepanelStore();
+		mockAllNodes.value = [
+			{
+				name: 'OpenAI Chat Model',
+				type: '@n8n/n8n-nodes-langchain.lmChatOpenAi',
+				parameters: { model: { __rl: true, mode: 'list', value: 'gpt-4o-mini' } },
+				credentials: { openAiApi: { id: 'cred-openai', name: 'OpenAI account' } },
+			},
+		];
+		// `setCredentials` is the only path that writes into `state.credentials`
+		// without going through the network; using it keeps the test honest
+		// about the store contract rather than reaching into private state.
+		const credentialsStore = useCredentialsStore();
+		credentialsStore.setCredentials([
+			{
+				id: 'cred-openai',
+				name: 'OpenAI',
+				type: 'openAiApi',
+				createdAt: '',
+				updatedAt: '',
+				scopes: [],
+				homeProject: undefined,
+				sharedWithProjects: [],
+				isManaged: false,
+			} as unknown as Parameters<typeof credentialsStore.setCredentials>[0][number],
+		]);
+
+		store.open(0);
+		// User had previously picked Anthropic for correctness — the watcher
+		// must respect that even though the workflow's sub-node is OpenAI.
+		store.setJudgeSelection('correctness', {
+			provider: 'anthropic',
+			credentialId: 'cred-anthropic',
+			model: 'claude-3-5-sonnet-20241022',
+		});
+
+		renderComponent();
+
+		// Correctness preserved; helpfulness (empty slot) gets the workflow default.
+		expect(store.judgeSelectionByMetric.correctness).toEqual({
+			provider: 'anthropic',
+			credentialId: 'cred-anthropic',
+			model: 'claude-3-5-sonnet-20241022',
+		});
+		expect(store.judgeSelectionByMetric.helpfulness).toEqual({
+			provider: 'openai',
+			credentialId: 'cred-openai',
+			model: 'gpt-4o-mini',
+		});
 	});
 
 	it('shows loading skeletons on Step 3 while the run is in progress', () => {
