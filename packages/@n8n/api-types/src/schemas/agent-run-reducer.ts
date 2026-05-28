@@ -228,7 +228,7 @@ export function reduceEvent(state: AgentRunState, event: InstanceAiEvent): Agent
 					toolName: event.payload.toolName,
 					args: event.payload.args,
 					isLoading: true,
-					renderHint: getRenderHint(event.payload.toolName, event.payload.args),
+					renderHint: getRenderHint(event.payload.toolName),
 					startedAt: new Date().toISOString(),
 				};
 				state.toolCallsById[event.payload.toolCallId] = tc;

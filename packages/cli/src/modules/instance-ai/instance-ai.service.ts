@@ -3300,6 +3300,7 @@ export class InstanceAiService {
 			// Make the current user message available to sub-agents (e.g. planner)
 			// since memory history only returns previously-saved messages.
 			orchestrationContext.currentUserMessage = message;
+			context.currentUserMessage = message;
 			orchestrationContext.isReplanFollowUp = isReplanFollowUp;
 			orchestrationContext.timeZone = timeZone ?? this.defaultTimeZone;
 
@@ -3326,9 +3327,7 @@ export class InstanceAiService {
 			if (plannedBuild) {
 				context.permissions = {
 					...context.permissions,
-					...(getPlannedTaskPermissionOverrides('build-workflow', {
-						plannedBuild,
-					}) ?? {}),
+					...(getPlannedTaskPermissionOverrides('build-workflow') ?? {}),
 				} as typeof context.permissions;
 				if (plannedBuild.workflowId) {
 					context.allowedUpdateWorkflowIds = new Set([plannedBuild.workflowId]);

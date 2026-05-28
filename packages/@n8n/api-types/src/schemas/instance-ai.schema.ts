@@ -1053,10 +1053,7 @@ export interface InstanceAiModelCredential {
 	provider: string;
 }
 
-export function getRenderHint(
-	toolName: string,
-	args?: Record<string, unknown>,
-): InstanceAiToolCallState['renderHint'] {
+export function getRenderHint(toolName: string): InstanceAiToolCallState['renderHint'] {
 	if (toolName === 'task-control') return 'tasks';
 	if (toolName === 'delegate') return 'delegate';
 	if (toolName === 'build-workflow-with-agent') return 'builder';

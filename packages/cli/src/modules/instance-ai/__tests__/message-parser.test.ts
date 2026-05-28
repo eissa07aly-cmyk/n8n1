@@ -434,8 +434,10 @@ describe('parseStoredMessages', () => {
 
 			const toolCalls = result[1].agentTree?.toolCalls ?? [];
 			expect(toolCalls[0].renderHint).toBe('delegate');
-			expect(toolCalls[1].renderHint).toBe('builder');
+			// Native `workflows` tool renders as the default tool-call step.
+			expect(toolCalls[1].renderHint).toBe('default');
 			expect(toolCalls[2].renderHint).toBe('planner');
+			// Legacy `build-workflow-with-agent` traces keep the builder hint.
 			expect(toolCalls[3].renderHint).toBe('builder');
 		});
 	});

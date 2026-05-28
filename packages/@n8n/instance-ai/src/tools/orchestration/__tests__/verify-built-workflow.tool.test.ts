@@ -710,6 +710,7 @@ describe('verify-built-workflow tool', () => {
 		const result = await runTool(ctx, { workItemId: 'wi-1', workflowId: 'wf-1' });
 
 		expect(result.success).toBe(false);
+		if (!('remediation' in result)) throw new Error('expected remediation in result');
 		expect(result.error).toContain('only executed trigger nodes');
 		expect(result.remediation).toMatchObject({
 			category: 'code_fixable',

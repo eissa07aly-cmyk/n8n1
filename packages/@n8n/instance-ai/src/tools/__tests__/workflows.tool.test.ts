@@ -79,7 +79,7 @@ function createMockContext(
 	context.dataTableService.insertRows = jest.fn();
 	context.dataTableService.updateRows = jest.fn();
 	context.dataTableService.deleteRows = jest.fn();
-	context.permissions = {};
+	context.permissions = {} as typeof context.permissions;
 	Object.assign(context, overrides);
 	return context;
 }

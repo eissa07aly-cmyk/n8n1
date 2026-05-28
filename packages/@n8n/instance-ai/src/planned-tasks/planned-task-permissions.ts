@@ -2,12 +2,6 @@ import type { InstanceAiPermissions } from '@n8n/api-types';
 
 import type { InstanceAiContext, PlannedTaskKind } from '../types';
 
-interface PlannedTaskPermissionOptions {
-	plannedBuild?: {
-		workflowId?: string;
-	};
-}
-
 /**
  * Permission overrides applied when a planned task has been approved by the user.
  *
@@ -38,7 +32,6 @@ const PLANNED_TASK_PERMISSION_OVERRIDES: Partial<
 
 export function getPlannedTaskPermissionOverrides(
 	taskKind: PlannedTaskKind,
-	_options: PlannedTaskPermissionOptions = {},
 ): Partial<InstanceAiPermissions> | undefined {
 	const baseOverrides = PLANNED_TASK_PERMISSION_OVERRIDES[taskKind];
 	return baseOverrides ? { ...baseOverrides } : undefined;
@@ -52,9 +45,8 @@ export function getPlannedTaskPermissionOverrides(
 export function applyPlannedTaskPermissions(
 	context: InstanceAiContext,
 	taskKind: PlannedTaskKind,
-	options?: PlannedTaskPermissionOptions,
 ): InstanceAiContext {
-	const overrides = getPlannedTaskPermissionOverrides(taskKind, options);
+	const overrides = getPlannedTaskPermissionOverrides(taskKind);
 	if (!overrides) return context;
 
 	return {

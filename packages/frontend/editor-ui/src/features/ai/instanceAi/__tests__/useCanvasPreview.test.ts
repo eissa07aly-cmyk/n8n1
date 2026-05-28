@@ -317,6 +317,14 @@ describe('useCanvasPreview', () => {
 									workflowId: 'wf-existing',
 									name: 'Existing workflow',
 								},
+								// The update suspends for approval; the confirmation payload carries
+								// the (replay-remapped) workflowId that drives preview targeting.
+								confirmation: {
+									requestId: 'req-update',
+									severity: 'info',
+									message: 'Update workflow Existing workflow (ID: wf-existing)',
+									workflowId: 'wf-existing',
+								},
 								isLoading: true,
 							}),
 						],

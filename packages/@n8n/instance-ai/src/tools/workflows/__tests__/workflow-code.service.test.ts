@@ -110,10 +110,17 @@ describe('workflow code create/update approval flow', () => {
 		};
 	}
 
-	function makePlannedBuildTask(
-		overrides: Record<string, unknown> = {},
-	): NonNullable<InstanceAiContext['plannedBuildTask']> {
-		const plannedBuildTask = mock<NonNullable<InstanceAiContext['plannedBuildTask']>>();
+	type PlannedBuildTaskFixture = Omit<
+		NonNullable<InstanceAiContext['plannedBuildTask']>,
+		'workflowTaskService'
+	> & {
+		workflowTaskService: NonNullable<
+			NonNullable<InstanceAiContext['plannedBuildTask']>['workflowTaskService']
+		>;
+	};
+
+	function makePlannedBuildTask(overrides: Record<string, unknown> = {}): PlannedBuildTaskFixture {
+		const plannedBuildTask = mock<PlannedBuildTaskFixture>();
 		plannedBuildTask.threadId = 'thread-1';
 		plannedBuildTask.taskId = 'task-1';
 		plannedBuildTask.workItemId = 'wi-1';
@@ -312,7 +319,7 @@ describe('workflow code create/update approval flow', () => {
 		mockedParseAndValidate.mockImplementationOnce(() => {
 			throw new Error('Failed to parse workflow code: syntax error');
 		});
-		const logger = { warn: jest.fn() };
+		const logger = { warn: jest.fn(), info: jest.fn(), error: jest.fn(), debug: jest.fn() };
 		const markFailed = jest.fn().mockRejectedValue(new Error('state write unavailable'));
 		const plannedBuildTask = makePlannedBuildTask({
 			plannedTaskService: {
@@ -500,7 +507,8 @@ describe('workflow code create/update approval flow', () => {
 			.mockResolvedValue({ type: 'continue_building' });
 		const plannedBuildTask = makePlannedBuildTask();
 		plannedBuildTask.workflowId = 'wf-1';
-		plannedBuildTask.workflowTaskService.reportBuildOutcome = reportBuildOutcome;
+		plannedBuildTask.workflowTaskService.reportBuildOutcome =
+			reportBuildOutcome as unknown as typeof plannedBuildTask.workflowTaskService.reportBuildOutcome;
 		const ctx = makeContext(
 			{ updateWorkflow: 'always_allow' },
 			{
@@ -629,7 +637,7 @@ describe('workflow code create/update approval flow', () => {
 		let resolveCreate!: (value: { id: string }) => void;
 		jest.mocked(ctx.workflowService.createFromWorkflowJSON).mockReturnValue(
 			new Promise((resolve) => {
-				resolveCreate = resolve;
+				resolveCreate = resolve as (value: { id: string }) => void;
 			}),
 		);
 		const service = createWorkflowCodeService(ctx);
@@ -1341,7 +1349,7 @@ describe('workflow code create/update approval flow', () => {
 			patches: [{ old_str: 'Lead intake', new_str: 'Updated intake' }],
 		};
 
-		const { context: firstContext, suspend } = makeToolContext();
+		const { context: firstContext } = makeToolContext();
 		const suspendResult = await service.update(input, firstContext);
 
 		expect(suspendResult).toEqual({ suspended: true });

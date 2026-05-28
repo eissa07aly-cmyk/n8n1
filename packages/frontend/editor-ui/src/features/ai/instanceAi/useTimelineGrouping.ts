@@ -42,8 +42,6 @@ export interface ResponseGroupSegment {
 	entries: InstanceAiTimelineEntry[];
 	/** Visible tool call count (excludes hidden and special-render tools). */
 	toolCallCount: number;
-	/** Number of text entries inside this group (intermediate thinking text). */
-	textCount: number;
 	/** Number of answered question forms in this group. */
 	questionCount: number;
 	/** Number of child agent entries in this group. */
@@ -95,7 +93,6 @@ export function useTimelineGrouping(
 				responseId,
 				entries: [],
 				toolCallCount: 0,
-				textCount: 0,
 				questionCount: 0,
 				childCount: 0,
 				artifacts: [],
