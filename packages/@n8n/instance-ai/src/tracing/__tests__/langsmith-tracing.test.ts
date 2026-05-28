@@ -6,7 +6,13 @@ import { z } from 'zod';
 
 import { executeTool } from '../../__tests__/tool-test-utils';
 import { createToolRegistry } from '../../tool-registry';
-import { TraceWriter, type TraceToolCall, type TraceToolSuspend } from '../trace-replay';
+import {
+	IdRemapper,
+	TraceIndex,
+	TraceWriter,
+	type TraceToolCall,
+	type TraceToolSuspend,
+} from '../trace-replay';
 
 jest.mock('@n8n/agents', () => {
 	const actual = jest.requireActual<Record<string, unknown>>('@n8n/agents');
@@ -1511,6 +1517,90 @@ describe('createInstanceAiTraceContext', () => {
 			output: {},
 			suspendPayload,
 		});
+	});
+
+	it('replays recorded suspensions before executing auto-allowed tools', async () => {
+		const tracing = createTraceReplayOnlyContext();
+		tracing.replayMode = 'replay';
+		tracing.traceIndex = new TraceIndex([
+			{ kind: 'header', version: 1, testName: 'replay-suspend', recordedAt: '' },
+			{
+				kind: 'tool-call',
+				stepId: 1,
+				agentRole: 'orchestrator',
+				toolName: 'workflows',
+				input: { action: 'list' },
+				output: { workflowId: 'recorded-workflow-id' },
+			},
+			{
+				kind: 'tool-suspend',
+				stepId: 2,
+				agentRole: 'orchestrator',
+				toolName: 'workflows',
+				input: { action: 'update', workflowId: 'recorded-workflow-id' },
+				output: {},
+				suspendPayload: {
+					requestId: 'request-1',
+					inputType: 'workflow',
+					message: 'Update workflow Target (ID: recorded-workflow-id)',
+				},
+			},
+		]);
+		tracing.idRemapper = new IdRemapper();
+
+		const toolCalls: unknown[] = [];
+		const workflowsTool: BuiltTool = {
+			name: 'workflows',
+			description: 'Manages workflows.',
+			suspendSchema: {},
+			handler: async (input) => {
+				toolCalls.push(input);
+				if (
+					typeof input === 'object' &&
+					input !== null &&
+					(input as { action?: unknown }).action === 'list'
+				) {
+					return await Promise.resolve({ workflowId: 'current-workflow-id' });
+				}
+
+				return await Promise.resolve({ success: true });
+			},
+		};
+
+		const wrappedTools = tracing.wrapTools(createToolRegistry([['workflows', workflowsTool]]), {
+			agentRole: 'orchestrator',
+		});
+		const wrappedTool = wrappedTools.get('workflows');
+		if (!isExecutableTool(wrappedTool)) {
+			throw new Error('Wrapped workflows tool is not executable');
+		}
+
+		await executeTool(wrappedTool, { action: 'list' });
+
+		const updateInput = {
+			action: 'update',
+			workflowId: 'recorded-workflow-id',
+		};
+		const result = await executeTool(wrappedTool, updateInput, {
+			resumeData: undefined,
+			suspend: async (payload: unknown): Promise<never> =>
+				await Promise.resolve({ pending: true, payload } as never),
+		});
+
+		expect(result).toEqual({
+			pending: true,
+			payload: {
+				requestId: 'request-1',
+				inputType: 'workflow',
+				message: 'Update workflow Target (ID: current-workflow-id)',
+				workflowId: 'current-workflow-id',
+			},
+		});
+		expect(updateInput).toEqual({
+			action: 'update',
+			workflowId: 'current-workflow-id',
+		});
+		expect(toolCalls).toEqual([{ action: 'list' }]);
 	});
 
 	it('records tool builders once the agent builds them', async () => {

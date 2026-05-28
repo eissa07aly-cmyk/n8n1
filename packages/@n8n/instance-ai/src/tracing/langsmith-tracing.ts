@@ -1211,6 +1211,30 @@ function wrapTools(
 
 // ── Replay wrappers ─────────────────────────────────────────────────────────
 
+function syncRemappedRecordInput(input: unknown, remappedInput: unknown): void {
+	if (input === remappedInput) return;
+	if (!isRecord(input) || !isRecord(remappedInput)) return;
+
+	for (const key of Object.keys(input)) {
+		delete input[key];
+	}
+	Object.assign(input, remappedInput);
+}
+
+function addRemappedWorkflowIdToSuspendPayload(
+	suspendPayload: unknown,
+	remappedInput: unknown,
+): unknown {
+	if (!isRecord(suspendPayload) || !isRecord(remappedInput)) return suspendPayload;
+	if (typeof suspendPayload.workflowId === 'string') return suspendPayload;
+	if (typeof remappedInput.workflowId !== 'string') return suspendPayload;
+
+	return {
+		...suspendPayload,
+		workflowId: remappedInput.workflowId,
+	};
+}
+
 /**
  * Tier 1: Real execution + ID remapping.
  * Executes the tool for real with remapped input, then learns new ID mappings
@@ -1227,6 +1251,20 @@ function replayWrapTool(
 		handler: async (input, context) => {
 			const event = traceIndex.nextMatching(agentRole, tool.name);
 			const remappedInput: unknown = idRemapper.remapInput(input);
+			syncRemappedRecordInput(input, remappedInput);
+			if (event?.kind === 'tool-suspend') {
+				if (!isInterruptibleToolContext(context)) {
+					throw new Error(
+						`Recorded suspension for replay tool "${tool.name}" requires an interruptible context`,
+					);
+				}
+				return await context.suspend(
+					addRemappedWorkflowIdToSuspendPayload(
+						idRemapper.remapOutput(event.suspendPayload),
+						remappedInput,
+					),
+				);
+			}
 			const realOutput = await tool.handler(remappedInput, context);
 			if (event) {
 				idRemapper.learn(event.output, realOutput as Record<string, unknown>);

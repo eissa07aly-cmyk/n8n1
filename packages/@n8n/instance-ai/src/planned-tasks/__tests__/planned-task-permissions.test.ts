@@ -54,28 +54,28 @@ describe('applyPlannedTaskPermissions', () => {
 			expect(result.permissions?.createDataTable).toBe('always_allow');
 		});
 
-		it('should include create permission for an approved planned create follow-up', () => {
+		it('should keep planned create saves behind explicit workflow approval', () => {
 			const overrides = getPlannedTaskPermissionOverrides('build-workflow', {
 				plannedBuild: {},
 			});
 
 			expect(overrides).toMatchObject({
-				createWorkflow: 'always_allow',
 				createDataTable: 'always_allow',
 			});
+			expect(overrides?.createWorkflow).toBeUndefined();
 			expect(overrides?.updateWorkflow).toBeUndefined();
 		});
 
-		it('should include update permission for an approved planned update follow-up', () => {
+		it('should keep planned update saves behind explicit workflow approval', () => {
 			const overrides = getPlannedTaskPermissionOverrides('build-workflow', {
 				plannedBuild: { workflowId: 'wf-1' },
 			});
 
 			expect(overrides).toMatchObject({
-				updateWorkflow: 'always_allow',
 				createDataTable: 'always_allow',
 			});
 			expect(overrides?.createWorkflow).toBeUndefined();
+			expect(overrides?.updateWorkflow).toBeUndefined();
 		});
 	});
 

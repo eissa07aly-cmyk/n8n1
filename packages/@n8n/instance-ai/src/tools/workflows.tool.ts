@@ -265,9 +265,7 @@ const WORKFLOW_ACTION_LABELS = {
 	'update-version': 'update version metadata',
 } satisfies Record<WorkflowAction, string>;
 
-const DEFAULT_ORCHESTRATOR_WORKFLOW_ACTIONS = WORKFLOW_ACTION_ORDER.filter(
-	(action) => action !== 'create',
-);
+const DEFAULT_ORCHESTRATOR_WORKFLOW_ACTIONS = WORKFLOW_ACTION_ORDER;
 
 function normalizeOptions(options: WorkflowsToolOptionsInput = {}): WorkflowsToolOptions {
 	return typeof options === 'string' ? { surface: options } : options;

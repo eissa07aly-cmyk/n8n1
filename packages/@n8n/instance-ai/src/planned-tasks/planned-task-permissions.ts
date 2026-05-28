@@ -11,8 +11,9 @@ interface PlannedTaskPermissionOptions {
 /**
  * Permission overrides applied when a planned task has been approved by the user.
  *
- * Plan approval acts as authorization for the task-family's non-destructive tools,
- * so the planned-task executor can run without a second confirmation prompt.
+ * Plan approval acts as authorization for the task-family's non-destructive
+ * helper tools. Workflow saves still require explicit approval at the point
+ * where the exact create/update payload is known.
  *
  * Destructive actions, open-ended actions (fetch-url, read-file),
  * and credential deletion are intentionally excluded — they always require explicit approval.
@@ -37,19 +38,10 @@ const PLANNED_TASK_PERMISSION_OVERRIDES: Partial<
 
 export function getPlannedTaskPermissionOverrides(
 	taskKind: PlannedTaskKind,
-	options: PlannedTaskPermissionOptions = {},
+	_options: PlannedTaskPermissionOptions = {},
 ): Partial<InstanceAiPermissions> | undefined {
 	const baseOverrides = PLANNED_TASK_PERMISSION_OVERRIDES[taskKind];
-	if (taskKind !== 'build-workflow' || !options.plannedBuild) {
-		return baseOverrides ? { ...baseOverrides } : undefined;
-	}
-
-	return {
-		...(baseOverrides ?? {}),
-		...(options.plannedBuild.workflowId
-			? { updateWorkflow: 'always_allow' as const }
-			: { createWorkflow: 'always_allow' as const }),
-	};
+	return baseOverrides ? { ...baseOverrides } : undefined;
 }
 
 /**

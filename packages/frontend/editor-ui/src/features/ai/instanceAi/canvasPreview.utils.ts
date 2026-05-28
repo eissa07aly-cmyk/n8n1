@@ -94,8 +94,9 @@ function isWorkflowBuildToolCall(tc: InstanceAiAgentNode['toolCalls'][number]): 
 
 /**
  * Walks an agent tree depth-first (most recent last) and returns the workflowId
- * from the latest in-flight workflow update call. This lets edit-mode previews
- * open as soon as the direct workflow tool starts, before save/HITL completes.
+ * from the latest suspended workflow update confirmation. Confirmation payloads
+ * carry remapped IDs during trace replay, while raw loading tool-call args can
+ * still contain recorded IDs.
  */
 export function getLatestActiveBuildTarget(
 	node: InstanceAiAgentNode,
@@ -107,14 +108,11 @@ export function getLatestActiveBuildTarget(
 	for (let i = node.toolCalls.length - 1; i >= 0; i--) {
 		const tc = node.toolCalls[i];
 		const args = tc.args as Record<string, unknown> | undefined;
-		if (
-			tc.toolName === 'workflows' &&
-			args?.action === 'update' &&
-			tc.isLoading &&
-			typeof args.workflowId === 'string'
-		) {
+		if (tc.toolName === 'workflows' && args?.action === 'update' && tc.isLoading) {
+			const workflowId = tc.confirmation?.workflowId;
+			if (typeof workflowId !== 'string') continue;
 			return {
-				workflowId: args.workflowId,
+				workflowId,
 				toolCallId: tc.toolCallId,
 				...(typeof args.name === 'string' ? { name: args.name } : {}),
 			};

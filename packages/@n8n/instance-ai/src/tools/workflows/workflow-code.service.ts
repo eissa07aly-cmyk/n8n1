@@ -111,6 +111,7 @@ export const workflowCodeConfirmationSuspendSchema = z.object({
 	requestId: z.string(),
 	message: z.string(),
 	severity: z.enum(['info', 'warning', 'destructive']),
+	workflowId: z.string().optional(),
 });
 
 const confirmationResumeSchema = z.object({
@@ -400,12 +401,14 @@ async function confirmSave(
 ): Promise<WorkflowCodeDeniedResult | undefined> {
 	const needsApproval = !isSaveAlwaysAllowed(context, input);
 	const resumeData = ctx.resumeData;
+	const workflowId = getWorkflowId(input);
 
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
 		return await ctx.suspend({
 			requestId: nanoid(),
 			message: approvalLabel(input),
 			severity: 'info',
+			...(workflowId ? { workflowId } : {}),
 		});
 	}
 

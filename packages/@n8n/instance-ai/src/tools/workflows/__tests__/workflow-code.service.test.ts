@@ -168,6 +168,7 @@ describe('workflow code create/update approval flow', () => {
 			expect.objectContaining({
 				message: 'Update workflow Lead intake (ID: wf-1)',
 				severity: 'info',
+				workflowId: 'wf-1',
 			}),
 		);
 	});
@@ -182,6 +183,7 @@ describe('workflow code create/update approval flow', () => {
 			expect.objectContaining({
 				message: 'Update workflow Lead intake (ID: wf-1)',
 				severity: 'info',
+				workflowId: 'wf-1',
 			}),
 		);
 	});

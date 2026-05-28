@@ -220,13 +220,19 @@ describe('getLatestBuildResult', () => {
 });
 
 describe('getLatestActiveBuildTarget', () => {
-	test('returns workflowId and toolCallId from loading workflow update call', () => {
+	test('returns workflowId and toolCallId from suspended workflow update confirmation', () => {
 		const node = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
 					toolCallId: 'tc-update',
 					toolName: 'workflows',
 					args: { action: 'update', workflowId: 'wf-existing', name: 'Existing workflow' },
+					confirmation: {
+						requestId: 'req-1',
+						severity: 'info',
+						message: 'Update workflow Existing workflow (ID: wf-existing)',
+						workflowId: 'wf-existing',
+					},
 					isLoading: true,
 				}),
 			],
@@ -234,6 +240,50 @@ describe('getLatestActiveBuildTarget', () => {
 
 		expect(getLatestActiveBuildTarget(node)).toEqual({
 			workflowId: 'wf-existing',
+			toolCallId: 'tc-update',
+			name: 'Existing workflow',
+		});
+	});
+
+	test('ignores loading workflow update calls before confirmation names the target', () => {
+		const node = makeAgentNode({
+			toolCalls: [
+				makeToolCall({
+					toolCallId: 'tc-update',
+					toolName: 'workflows',
+					args: { action: 'update', workflowId: 'recorded-workflow-id' },
+					isLoading: true,
+				}),
+			],
+		});
+
+		expect(getLatestActiveBuildTarget(node)).toBeUndefined();
+	});
+
+	test('prefers confirmation workflowId over loading args for suspended workflow update calls', () => {
+		const node = makeAgentNode({
+			toolCalls: [
+				makeToolCall({
+					toolCallId: 'tc-update',
+					toolName: 'workflows',
+					args: {
+						action: 'update',
+						workflowId: 'recorded-workflow-id',
+						name: 'Existing workflow',
+					},
+					confirmation: {
+						requestId: 'req-1',
+						severity: 'info',
+						message: 'Update workflow Existing workflow (ID: current-workflow-id)',
+						workflowId: 'current-workflow-id',
+					},
+					isLoading: true,
+				}),
+			],
+		});
+
+		expect(getLatestActiveBuildTarget(node)).toEqual({
+			workflowId: 'current-workflow-id',
 			toolCallId: 'tc-update',
 			name: 'Existing workflow',
 		});
