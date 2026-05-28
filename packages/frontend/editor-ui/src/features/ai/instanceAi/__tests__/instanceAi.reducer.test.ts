@@ -652,7 +652,13 @@ describe('instanceAi.reducer', () => {
 			expect(getRenderHint('delegate')).toBe('delegate');
 		});
 
-		test('returns builder for workflow builder tool', () => {
+		test('returns builder for workflow create and update actions', () => {
+			expect(getRenderHint('workflows', { action: 'create' })).toBe('builder');
+			expect(getRenderHint('workflows', { action: 'update' })).toBe('builder');
+			expect(getRenderHint('workflows', { action: 'list' })).toBe('default');
+		});
+
+		test('keeps builder render hint for persisted legacy workflow builder tool calls', () => {
 			expect(getRenderHint('build-workflow-with-agent')).toBe('builder');
 		});
 

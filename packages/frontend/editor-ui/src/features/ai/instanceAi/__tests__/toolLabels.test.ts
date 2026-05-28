@@ -54,7 +54,7 @@ describe('getToolIcon', () => {
 	});
 
 	test('returns share for tools ending with -with-agent', () => {
-		expect(getToolIcon('build-workflow-with-agent')).toBe('share');
+		expect(getToolIcon('research-with-agent')).toBe('share');
 	});
 
 	test('returns table for data-table tools', () => {
@@ -66,7 +66,6 @@ describe('getToolIcon', () => {
 		expect(getToolIcon('executions')).toBe('workflow');
 		expect(getToolIcon('nodes')).toBe('workflow');
 		expect(getToolIcon('templates')).toBe('workflow');
-		expect(getToolIcon('submit-workflow')).toBe('workflow');
 		expect(getToolIcon('materialize-node-type')).toBe('workflow');
 	});
 

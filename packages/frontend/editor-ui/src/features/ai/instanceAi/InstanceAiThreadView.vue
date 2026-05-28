@@ -42,8 +42,7 @@ import InstanceAiConfirmationPanel from './components/InstanceAiConfirmationPane
 import InstanceAiFixWithAiPanel from './components/InstanceAiFixWithAiPanel.vue';
 import InstanceAiPreviewTabBar from './components/InstanceAiPreviewTabBar.vue';
 import InstanceAiViewHeader from './components/InstanceAiViewHeader.vue';
-import AgentSection from './components/AgentSection.vue';
-import { collectActiveBuilderAgents, messageHasVisibleContent } from './builderAgents';
+import { messageHasVisibleContent } from './messageVisibility';
 import CreditWarningBanner from '@/features/ai/assistant/components/Agent/CreditWarningBanner.vue';
 import InstanceAiWorkflowPreview, {
 	type WorkflowFailuresReport,
@@ -68,14 +67,8 @@ const sidebar = useSidebarState();
 const { width: windowWidth } = useWindowSize();
 const { isCollapsed: isMainSidebarCollapsed, sidebarWidth: mainSidebarWidth } = useSidebarLayout();
 
-// Running builders render in a dedicated bottom section of the conversation.
-// Once a builder finishes it falls out of this list and AgentTimeline renders
-// it in its natural chronological slot.
-const builderAgents = computed(() => collectActiveBuilderAgents(thread.messages));
-
-// Assistant messages whose only content has been extracted to the bottom
-// builder section (or which haven't produced anything renderable yet) would
-// otherwise leave an empty wrapper in the list — filter them out.
+// Assistant messages that haven't produced anything renderable yet would
+// otherwise leave an empty wrapper in the list.
 const displayedMessages = computed(() => thread.messages.filter(messageHasVisibleContent));
 
 // True when at least one pending confirmation should occupy the chat-input
@@ -643,16 +636,6 @@ function handleWorkflowFailures(report: WorkflowFailuresReport) {
 									:message="message"
 								/>
 							</TransitionGroup>
-							<!-- Builder sub-agents are extracted from their parent assistant
-     messages and rendered here so they always sit at the bottom
-     of the conversation. -->
-							<div v-if="builderAgents.length" :class="$style.builderAgents">
-								<AgentSection
-									v-for="builder in builderAgents"
-									:key="builder.agentId"
-									:agent-node="builder"
-								/>
-							</div>
 							<!-- Inline confirmations (questions, plan review, text, setup,
 								 credential, gateway resource-decision, continue) render in
 								 the chat flow. Floating-eligible items take over the chat
@@ -817,13 +800,36 @@ function handleWorkflowFailures(report: WorkflowFailuresReport) {
 							@toggle-expanded="togglePreviewExpanded"
 						/>
 						<div :class="$style.previewContent">
+							<div
+								v-if="preview.activeSetupWorkflowId.value"
+								:class="$style.setupRequiredState"
+								data-test-id="instance-ai-workflow-setup-required-preview"
+							>
+								<N8nText size="medium" bold>
+									{{ i18n.baseText('instanceAi.workflowPreview.setupRequired.title') }}
+								</N8nText>
+								<N8nText size="small" color="text-light" align="center">
+									{{
+										i18n.baseText('instanceAi.workflowPreview.setupRequired.description', {
+											interpolate: {
+												name:
+													preview.activeSetupWorkflowName.value ??
+													i18n.baseText('instanceAi.workflowPreview.setupRequired.workflow'),
+											},
+										})
+									}}
+								</N8nText>
+							</div>
 							<InstanceAiWorkflowPreview
 								v-if="preview.activeWorkflowId.value"
 								:key="preview.activeWorkflowId.value"
 								ref="workflowPreview"
 								:class="[
 									$style.previewSlot,
-									{ [$style.previewSlotHidden]: !!preview.activeDataTableId.value },
+									{
+										[$style.previewSlotHidden]:
+											!!preview.activeDataTableId.value || !!preview.activeSetupWorkflowId.value,
+									},
 								]"
 								:workflow-id="preview.activeWorkflowId.value"
 								:refresh-key="preview.workflowRefreshKey.value"
@@ -1012,13 +1018,6 @@ function handleWorkflowFailures(report: WorkflowFailuresReport) {
 	}
 }
 
-.builderAgents {
-	display: flex;
-	flex-direction: column;
-	gap: var(--spacing--2xs);
-	margin-top: var(--spacing--xs);
-}
-
 .scrollButtonContainer {
 	position: absolute;
 	left: 0;
@@ -1110,6 +1109,18 @@ function handleWorkflowFailures(report: WorkflowFailuresReport) {
 	flex: 1;
 	min-height: 0;
 	position: relative;
+}
+
+.setupRequiredState {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--spacing--xs);
+	padding: var(--spacing--xl);
+	text-align: center;
 }
 
 .previewSlot {
