@@ -186,6 +186,7 @@ import { PersistInstanceAiPendingConfirmations1784000000014 } from '../common/17
 import { AddSourceWorkflowIdToWorkflow1784000000015 } from '../common/1784000000015-AddSourceWorkflowIdToWorkflow';
 import { CreateAgentFilesTable1784000000016 } from '../common/1784000000016-CreateAgentFilesTable';
 import type { Migration } from '../migration-types';
+import { AddSubAgentOriginToAgentExecutionThreads1784000000017 } from '../common/1784000000017-AddSubAgentOriginToAgentExecutionThreads';
 
 const sqliteMigrations: Migration[] = [
 	InitialMigration1588102412422,
@@ -375,6 +376,7 @@ const sqliteMigrations: Migration[] = [
 	PersistInstanceAiPendingConfirmations1784000000014,
 	AddSourceWorkflowIdToWorkflow1784000000015,
 	CreateAgentFilesTable1784000000016,
+	AddSubAgentOriginToAgentExecutionThreads1784000000017,
 ];
 
 export { sqliteMigrations };
