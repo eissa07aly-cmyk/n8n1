@@ -16,11 +16,13 @@ not create a new plan.
 2. Load [sdk-rules.md](sdk-rules.md) before writing SDK code. Load
    [branch-tracing.md](branch-tracing.md) for branches, merges, agents, data
    shape, or helper-workflow wiring.
-3. Write short progress notes before meaningful phases such as inspecting node
-   definitions, saving, and patching validation errors. Keep them concise.
+3. Use little or no chat narration during internal build phases. If text is
+   needed, keep it neutral and phase-level, such as inspecting node definitions
+   or saving the workflow.
 4. Call `workflows(action="create")` for a planned create or
    `workflows(action="update")` for a planned update.
-5. If validation errors return, patch and retry in the same turn.
+5. If validation errors return, patch and retry in the same turn without
+   narrating the transient error to the user.
 6. Stop after the successful create/update call. The tool records the planned
    task outcome for later checkpoint verification.
 

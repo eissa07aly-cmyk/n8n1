@@ -384,9 +384,10 @@ describe('useCanvasPreview', () => {
 			expect(ctx.isPreviewVisible.value).toBe(true);
 		});
 
-		test('opens artifact tab without workflow preview while setup is required', async () => {
+		test('opens workflow preview even while setup is required', async () => {
 			const ctx = setup();
 			ctx.thread.isStreaming = true;
+			const initialRefreshKey = ctx.workflowRefreshKey.value;
 			const entry: ResourceEntry = {
 				type: 'workflow',
 				id: 'wf-needs-setup',
@@ -416,9 +417,8 @@ describe('useCanvasPreview', () => {
 
 			expect(ctx.allArtifactTabs.value.some((tab) => tab.id === 'wf-needs-setup')).toBe(true);
 			expect(ctx.activeTabId.value).toBe('wf-needs-setup');
-			expect(ctx.activeWorkflowId.value).toBeNull();
-			expect(ctx.activeSetupWorkflowId.value).toBe('wf-needs-setup');
-			expect(ctx.activeSetupWorkflowName.value).toBe('Needs setup');
+			expect(ctx.activeWorkflowId.value).toBe('wf-needs-setup');
+			expect(ctx.workflowRefreshKey.value).toBe(initialRefreshKey + 1);
 			expect(ctx.isPreviewVisible.value).toBe(true);
 		});
 

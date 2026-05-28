@@ -21,13 +21,22 @@ function getStringProp(record: Record<string, unknown>, key: string): string | u
 	return typeof value === 'string' ? value : undefined;
 }
 
-function isWorkflowMutationToolCall(tc: InstanceAiToolCallState): boolean {
+function isDirectWorkflowMutationToolCall(tc: InstanceAiToolCallState): boolean {
 	const action = getStringProp(tc.args, 'action');
+	return tc.toolName === 'workflows' && (action === 'create' || action === 'update');
+}
+
+function isWorkflowArtifactToolCall(tc: InstanceAiToolCallState): boolean {
 	return (
-		(tc.toolName === 'workflows' && (action === 'create' || action === 'update')) ||
+		isDirectWorkflowMutationToolCall(tc) ||
 		tc.toolName === 'build-workflow' ||
+		tc.toolName === 'build-workflow-with-agent' ||
 		tc.toolName === 'submit-workflow'
 	);
+}
+
+export function isLegacyBuilderToolCall(tc: InstanceAiToolCallState): boolean {
+	return tc.renderHint === 'builder' && !isDirectWorkflowMutationToolCall(tc);
 }
 
 /** Extract all artifacts (workflows and data tables) from a node's tool calls. */
@@ -79,7 +88,7 @@ export function extractArtifactsFromToolCall(
 	const workflowId = getStringProp(result, 'workflowId');
 
 	// Workflow artifacts from workflow create/update
-	if (isWorkflowMutationToolCall(tc) && workflowId && !seenIds.has(workflowId)) {
+	if (isWorkflowArtifactToolCall(tc) && workflowId && !seenIds.has(workflowId)) {
 		seenIds.add(workflowId);
 		const name =
 			getStringProp(result, 'workflowName') ?? getStringProp(tc.args, 'name') ?? 'Untitled';

@@ -337,7 +337,7 @@ describe('agent-run-reducer', () => {
 			const state = stateWithRun('run-1', 'root');
 			reduceEvent(
 				state,
-				makeToolCall('run-1', 'root', 'tc-builder', 'workflows', { action: 'create' }),
+				makeToolCall('run-1', 'root', 'tc-workflow', 'workflows', { action: 'create' }),
 			);
 			reduceEvent(
 				state,
@@ -347,7 +347,7 @@ describe('agent-run-reducer', () => {
 			reduceEvent(state, makeToolCall('run-1', 'root', 'tc-eval-setup', 'eval-setup-with-agent'));
 			reduceEvent(state, makeToolCall('run-1', 'root', 'tc-skill', 'load_skill'));
 
-			expect(state.toolCallsById['tc-builder'].renderHint).toBe('builder');
+			expect(state.toolCallsById['tc-workflow'].renderHint).toBe('default');
 			expect(state.toolCallsById['tc-legacy-builder'].renderHint).toBe('builder');
 			expect(state.toolCallsById['tc-research'].renderHint).toBe('researcher');
 			expect(state.toolCallsById['tc-eval-setup'].renderHint).toBe('eval-setup');

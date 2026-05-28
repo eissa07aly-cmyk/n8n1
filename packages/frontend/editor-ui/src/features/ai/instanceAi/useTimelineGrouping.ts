@@ -9,6 +9,7 @@ import {
 	extractArtifacts,
 	extractArtifactsFromToolCall,
 	HIDDEN_TOOLS,
+	isLegacyBuilderToolCall,
 	type ArtifactInfo,
 } from './agentTimeline.utils';
 
@@ -18,7 +19,10 @@ const SPECIAL_RENDER_HINTS = new Set(['tasks', 'delegate', 'builder', 'data-tabl
 /** Returns true if a tool call renders as a generic ToolCallStep (not special UI). */
 function isGenericToolCall(tc: InstanceAiToolCallState): boolean {
 	if (HIDDEN_TOOLS.has(tc.toolName)) return false;
-	if (tc.renderHint && SPECIAL_RENDER_HINTS.has(tc.renderHint)) return false;
+	if (isLegacyBuilderToolCall(tc)) return false;
+	if (tc.renderHint && tc.renderHint !== 'builder' && SPECIAL_RENDER_HINTS.has(tc.renderHint)) {
+		return false;
+	}
 	if (tc.confirmation?.inputType === 'questions' || tc.confirmation?.inputType === 'plan-review') {
 		return false;
 	}

@@ -72,7 +72,30 @@ describe('messageHasVisibleContent', () => {
 		).toBe(false);
 	});
 
-	it('hides assistant messages whose only timeline entry is a loading hidden builder tool call', () => {
+	it('hides assistant messages whose only timeline entry is a loading legacy builder tool call', () => {
+		expect(
+			messageHasVisibleContent(
+				assistantMessage('', {
+					isStreaming: true,
+					agentTree: makeAgentTree({
+						status: 'active',
+						toolCalls: [
+							{
+								toolCallId: 'tc-build',
+								toolName: 'build-workflow-with-agent',
+								args: {},
+								isLoading: true,
+								renderHint: 'builder',
+							},
+						],
+						timeline: [{ type: 'tool-call', toolCallId: 'tc-build', responseId: 'response-1' }],
+					}),
+				}),
+			),
+		).toBe(false);
+	});
+
+	it('keeps direct workflow mutation tool calls visible while loading', () => {
 		expect(
 			messageHasVisibleContent(
 				assistantMessage('', {
@@ -92,10 +115,10 @@ describe('messageHasVisibleContent', () => {
 					}),
 				}),
 			),
-		).toBe(false);
+		).toBe(true);
 	});
 
-	it('keeps completed hidden builder tool calls visible when they render an artifact', () => {
+	it('keeps completed legacy builder tool calls visible when they render an artifact', () => {
 		expect(
 			messageHasVisibleContent(
 				assistantMessage('', {
@@ -103,8 +126,8 @@ describe('messageHasVisibleContent', () => {
 						toolCalls: [
 							{
 								toolCallId: 'tc-build',
-								toolName: 'workflows',
-								args: { action: 'create' },
+								toolName: 'build-workflow-with-agent',
+								args: {},
 								isLoading: false,
 								renderHint: 'builder',
 								result: { success: true, workflowId: 'wf-1', workflowName: 'Built workflow' },

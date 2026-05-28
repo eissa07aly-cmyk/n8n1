@@ -13,7 +13,8 @@ credentials or setup values are still needed.
   intermediate drafts that should be archived automatically. Omit it for final
   user-visible workflows, including approved helper workflows.
 - If `workflows(action="create"|"update")` returns validation errors, patch and
-  retry in the same turn.
+  retry in the same turn. Do not narrate transient validation failures that you
+  can repair.
 
 ## Verification Routing
 
@@ -68,7 +69,8 @@ expression is wrong against the production trigger output shape.
 ## Patch And Setup
 
 - If verification exposes a workflow bug that can be patched narrowly, call
-  `workflows(action="update")`, then verify again.
+  `workflows(action="update")`, then verify again. Do not narrate fixable
+  verification failures while you are repairing them.
 - If `verify-built-workflow` returns `remediation.shouldEdit === true`, make one
   batched workflow-code repair, save it, then verify again. Respect
   `remainingSubmitFixes`, `attemptCount`, repeated failure signatures, and any

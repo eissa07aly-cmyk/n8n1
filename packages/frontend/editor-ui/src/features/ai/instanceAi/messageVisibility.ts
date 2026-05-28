@@ -4,10 +4,14 @@ import type {
 	InstanceAiTimelineEntry,
 	InstanceAiToolCallState,
 } from '@n8n/api-types';
-import { extractArtifactsFromToolCall, HIDDEN_TOOLS } from './agentTimeline.utils';
+import {
+	extractArtifactsFromToolCall,
+	HIDDEN_TOOLS,
+	isLegacyBuilderToolCall,
+} from './agentTimeline.utils';
 import { stripInternalInstanceAiBlocks } from './internalBlocks';
 
-const HIDDEN_RENDER_HINTS = new Set(['builder', 'data-table', 'eval-setup', 'planner']);
+const HIDDEN_RENDER_HINTS = new Set(['data-table', 'eval-setup', 'planner']);
 
 function toolCallHasVisibleContent(
 	toolCall: InstanceAiToolCallState,
@@ -19,7 +23,10 @@ function toolCallHasVisibleContent(
 	if (toolCall.confirmation?.inputType === 'plan-review') return true;
 	if (toolCall.confirmation?.inputType === 'questions') return !toolCall.isLoading;
 
-	if (toolCall.renderHint && HIDDEN_RENDER_HINTS.has(toolCall.renderHint)) {
+	if (
+		isLegacyBuilderToolCall(toolCall) ||
+		(toolCall.renderHint && HIDDEN_RENDER_HINTS.has(toolCall.renderHint))
+	) {
 		return (
 			tree.status !== 'active' &&
 			entry.responseId !== undefined &&

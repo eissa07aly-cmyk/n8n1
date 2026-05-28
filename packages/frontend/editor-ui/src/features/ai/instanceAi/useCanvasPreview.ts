@@ -88,17 +88,7 @@ export function useCanvasPreview({
 
 	const activeWorkflowId = computed(() => {
 		const tab = activeTab.value;
-		return tab?.type === 'workflow' && !tab.needsSetup ? tab.id : null;
-	});
-
-	const activeSetupWorkflowId = computed(() => {
-		const tab = activeTab.value;
-		return tab?.type === 'workflow' && tab.needsSetup ? tab.id : null;
-	});
-
-	const activeSetupWorkflowName = computed(() => {
-		const tab = activeTab.value;
-		return tab?.type === 'workflow' && tab.needsSetup ? tab.name : null;
+		return tab?.type === 'workflow' ? tab.id : null;
 	});
 
 	const activeDataTableId = computed(() => {
@@ -202,11 +192,6 @@ export function useCanvasPreview({
 		(toolCallId) => {
 			if (!toolCallId || !latestBuildResult.value) return;
 			if (thread.isHydratingThread) return;
-
-			if (latestBuildResult.value.needsSetup) {
-				activeTabId.value = latestBuildResult.value.workflowId;
-				return;
-			}
 
 			activeTabId.value = latestBuildResult.value.workflowId;
 			workflowRefreshKey.value++;
@@ -359,8 +344,6 @@ export function useCanvasPreview({
 		allArtifactTabs,
 		activeExecutionId,
 		activeWorkflowId,
-		activeSetupWorkflowId,
-		activeSetupWorkflowName,
 		activeDataTableId,
 		activeDataTableProjectId,
 		dataTableRefreshKey,

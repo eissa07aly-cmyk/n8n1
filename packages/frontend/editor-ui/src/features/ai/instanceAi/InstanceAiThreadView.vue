@@ -800,26 +800,6 @@ function handleWorkflowFailures(report: WorkflowFailuresReport) {
 							@toggle-expanded="togglePreviewExpanded"
 						/>
 						<div :class="$style.previewContent">
-							<div
-								v-if="preview.activeSetupWorkflowId.value"
-								:class="$style.setupRequiredState"
-								data-test-id="instance-ai-workflow-setup-required-preview"
-							>
-								<N8nText size="medium" bold>
-									{{ i18n.baseText('instanceAi.workflowPreview.setupRequired.title') }}
-								</N8nText>
-								<N8nText size="small" color="text-light" align="center">
-									{{
-										i18n.baseText('instanceAi.workflowPreview.setupRequired.description', {
-											interpolate: {
-												name:
-													preview.activeSetupWorkflowName.value ??
-													i18n.baseText('instanceAi.workflowPreview.setupRequired.workflow'),
-											},
-										})
-									}}
-								</N8nText>
-							</div>
 							<InstanceAiWorkflowPreview
 								v-if="preview.activeWorkflowId.value"
 								:key="preview.activeWorkflowId.value"
@@ -827,8 +807,7 @@ function handleWorkflowFailures(report: WorkflowFailuresReport) {
 								:class="[
 									$style.previewSlot,
 									{
-										[$style.previewSlotHidden]:
-											!!preview.activeDataTableId.value || !!preview.activeSetupWorkflowId.value,
+										[$style.previewSlotHidden]: !!preview.activeDataTableId.value,
 									},
 								]"
 								:workflow-id="preview.activeWorkflowId.value"
@@ -1109,18 +1088,6 @@ function handleWorkflowFailures(report: WorkflowFailuresReport) {
 	flex: 1;
 	min-height: 0;
 	position: relative;
-}
-
-.setupRequiredState {
-	position: absolute;
-	inset: 0;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-	gap: var(--spacing--xs);
-	padding: var(--spacing--xl);
-	text-align: center;
 }
 
 .previewSlot {

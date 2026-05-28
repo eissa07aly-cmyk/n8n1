@@ -48,6 +48,9 @@ or execution evidence.
    concrete blocker.
 7. If a mutating tool returns `denied: true`, stop immediately and tell the user
    no changes were made.
+8. Do not narrate transient validation, build, or verification errors that you
+   can repair. Keep working with tools; mention an error only when it becomes a
+   concrete blocker or needs user input.
 ## Load Detail When Needed
 - Use [references/sdk-rules.md](references/sdk-rules.md) before writing or
   repairing workflow SDK code.

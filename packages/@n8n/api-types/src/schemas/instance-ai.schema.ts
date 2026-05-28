@@ -1059,9 +1059,6 @@ export function getRenderHint(
 ): InstanceAiToolCallState['renderHint'] {
 	if (toolName === 'task-control') return 'tasks';
 	if (toolName === 'delegate') return 'delegate';
-	if (toolName === 'workflows' && (args?.action === 'create' || args?.action === 'update')) {
-		return 'builder';
-	}
 	if (toolName === 'build-workflow-with-agent') return 'builder';
 	if (toolName === 'research-with-agent') return 'researcher';
 	if (toolName === 'plan') return 'planner';

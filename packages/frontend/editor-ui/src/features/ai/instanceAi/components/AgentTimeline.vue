@@ -8,7 +8,12 @@ import type {
 import { N8nText } from '@n8n/design-system';
 import { useI18n } from '@n8n/i18n';
 import { computed } from 'vue';
-import { extractArtifacts, HIDDEN_TOOLS, type ArtifactInfo } from '../agentTimeline.utils';
+import {
+	extractArtifacts,
+	HIDDEN_TOOLS,
+	isLegacyBuilderToolCall,
+	type ArtifactInfo,
+} from '../agentTimeline.utils';
 import { useTelemetry } from '@/app/composables/useTelemetry';
 import { useRootStore } from '@n8n/stores/useRootStore';
 import { useThread } from '../instanceAi.store';
@@ -243,8 +248,8 @@ function mapTaskItemsToPlannedTasks(tasks?: TaskList): PlannedTaskArg[] | undefi
 					:is-loading="toolCallsById[entry.toolCallId].isLoading"
 					:tool-call-id="toolCallsById[entry.toolCallId].toolCallId"
 				/>
-				<!-- Hidden tool calls (builder artifacts render through timeline grouping) -->
-				<template v-else-if="toolCallsById[entry.toolCallId].renderHint === 'builder'" />
+				<!-- Legacy builder agent calls render through their child agent/artifact UI. -->
+				<template v-else-if="isLegacyBuilderToolCall(toolCallsById[entry.toolCallId])" />
 				<template v-else-if="toolCallsById[entry.toolCallId].renderHint === 'data-table'" />
 				<template v-else-if="toolCallsById[entry.toolCallId].renderHint === 'eval-setup'" />
 				<!-- Plan review must match before the planner renderHint suppression:

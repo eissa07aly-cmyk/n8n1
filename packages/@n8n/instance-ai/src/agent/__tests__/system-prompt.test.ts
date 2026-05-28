@@ -8,8 +8,9 @@ describe('getSystemPrompt', () => {
 			expect(prompt).toContain('before your first tool call');
 			expect(prompt).toContain('write one short sentence');
 			expect(prompt).toContain("Keep it tied to the user's goal, not the tool name");
-			expect(prompt).toContain('narrate between tools whenever a tool result changes');
-			expect(prompt).toContain('do not run through multiple phases silently');
+			expect(prompt).toContain('keep visible narration sparse');
+			expect(prompt).toContain('Let the activity/status UI show routine progress');
+			expect(prompt).toContain('Do not narrate transient validation, build, verification');
 			expect(prompt).toContain('Do not call any more tools after planning');
 			expect(prompt).toContain('applies to normal turns and system-generated follow-up turns');
 			expect(prompt).toContain('Never let an empty assistant message');
@@ -234,12 +235,12 @@ describe('getSystemPrompt', () => {
 			expect(prompt).toContain('with that exact workflow ID');
 		});
 
-		it('allows phase progress in planned follow-ups without final completion text', () => {
+		it('keeps planned follow-up progress sparse without final completion text', () => {
 			const prompt = getSystemPrompt({});
 
-			expect(prompt).toContain('Write short progress notes before meaningful phases');
+			expect(prompt).toContain('Use little or no chat narration during internal validation');
 			expect(prompt).toContain(
-				'including build-workflow, checkpoint, setup, verification, and repair loops',
+				'Planned follow-up turns should usually avoid chat text during internal repair loops',
 			);
 			expect(prompt).toContain('do not write a final completion message');
 			expect(prompt).toContain('checkpoint card is the reporting boundary');

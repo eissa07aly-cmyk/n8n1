@@ -1138,9 +1138,9 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 			// would make the resumed call apply the same patch twice.
 			rememberCode(workflowId, finalCode);
 
-			if (workflowId) {
+			if (input.action === 'update') {
 				const updated = await context.workflowService.updateFromWorkflowJSON(
-					workflowId,
+					input.workflowId,
 					json,
 					projectId ? { projectId } : undefined,
 				);

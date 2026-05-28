@@ -59,10 +59,12 @@ describe('useTimelineGrouping', () => {
 		]);
 	});
 
-	test('keeps artifact-only groups for special builder tool calls', () => {
+	test('keeps artifact-only groups for legacy builder tool calls', () => {
 		const agentNode = makeAgentNode({
 			toolCalls: [
 				makeToolCall({
+					toolName: 'build-workflow-with-agent',
+					args: {},
 					renderHint: 'builder',
 					result: { workflowId: 'wf-2', workflowName: 'Hidden Builder WF' },
 				}),
@@ -82,6 +84,36 @@ describe('useTimelineGrouping', () => {
 						type: 'workflow',
 						resourceId: 'wf-2',
 						name: 'Hidden Builder WF',
+					}),
+				],
+			}),
+		);
+	});
+
+	test('counts direct workflow mutation calls as generic even with stale builder render hint', () => {
+		const agentNode = makeAgentNode({
+			toolCalls: [
+				makeToolCall({
+					toolName: 'workflows',
+					args: { action: 'create' },
+					renderHint: 'builder',
+					result: { workflowId: 'wf-3', workflowName: 'Visible workflow' },
+				}),
+			],
+			timeline: [{ type: 'tool-call', toolCallId: 'tc-build', responseId: 'response-1' }],
+		});
+
+		const segments = useTimelineGrouping(ref(agentNode)).value;
+
+		expect(segments?.[0]).toEqual(
+			expect.objectContaining({
+				kind: 'response-group',
+				toolCallCount: 1,
+				artifacts: [
+					expect.objectContaining({
+						type: 'workflow',
+						resourceId: 'wf-3',
+						name: 'Visible workflow',
 					}),
 				],
 			}),
