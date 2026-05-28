@@ -6,7 +6,6 @@ import {
 	N8nIconButton,
 	N8nRadioButtons,
 	N8nScrollArea,
-	N8nSwitch2,
 	N8nText,
 	N8nTooltip,
 } from '@n8n/design-system';
@@ -47,7 +46,6 @@ const props = defineProps<{
 }>();
 
 const childrenDisabled = computed(() => props.isBuildChatStreaming || !props.canEditAgent);
-const subAgentsEnabled = computed(() => props.localConfig?.subAgents?.enabled === true);
 
 const emit = defineEmits<{
 	'update:activeMainTab': [tab: AgentBuilderMainTab];
@@ -100,17 +98,8 @@ const selectedSubAgents = computed(() =>
 	}),
 );
 
-function onSubAgentsToggle(enabled: boolean) {
-	emit('update:config', {
-		subAgents: {
-			...props.localConfig?.subAgents,
-			enabled,
-		},
-	});
-}
-
 async function onOpenAddSubAgentsModal() {
-	if (!subAgentsEnabled.value || childrenDisabled.value) return;
+	if (childrenDisabled.value) return;
 
 	await ensureProjectAgentsLoaded();
 
@@ -131,8 +120,6 @@ async function onOpenAddSubAgentsModal() {
 
 				emit('update:config', {
 					subAgents: {
-						...props.localConfig?.subAgents,
-						enabled: true,
 						agents: [...selectedSubAgentRefs.value, ...newAgentRefs],
 					},
 				});
@@ -144,8 +131,6 @@ async function onOpenAddSubAgentsModal() {
 function onRemoveSubAgent(agentId: string) {
 	emit('update:config', {
 		subAgents: {
-			...props.localConfig?.subAgents,
-			enabled: subAgentsEnabled.value,
 			agents: selectedSubAgentRefs.value.filter((subAgent) => subAgent.agentId !== agentId),
 		},
 	});
@@ -241,26 +226,16 @@ function onRemoveSubAgent(agentId: string) {
 											variant="ghost"
 											size="small"
 											icon-size="medium"
-											:disabled="childrenDisabled || !subAgentsEnabled"
+											:disabled="childrenDisabled"
 											:aria-label="i18n.baseText('agents.builder.subAgents.add')"
 											data-testid="agent-sub-agents-open-add-modal"
 											@click="onOpenAddSubAgentsModal"
 										/>
 									</N8nTooltip>
-									<N8nSwitch2
-										:model-value="subAgentsEnabled"
-										:disabled="childrenDisabled"
-										:aria-label="i18n.baseText('agents.builder.subAgents.toggle')"
-										data-testid="agent-sub-agents-toggle"
-										@update:model-value="(value) => onSubAgentsToggle(Boolean(value))"
-									/>
 								</div>
 							</div>
 
-							<div
-								v-if="subAgentsEnabled && selectedSubAgents.length > 0"
-								:class="$style.subAgentsContent"
-							>
+							<div v-if="selectedSubAgents.length > 0" :class="$style.subAgentsContent">
 								<N8nScrollArea
 									max-height="calc((var(--spacing--2xl) + var(--spacing--sm)) * 5)"
 									type="auto"

@@ -82,10 +82,11 @@ const SubAgentConfigSchema = z.object({
 	agentId: z.string().trim().min(1),
 });
 
-const SubAgentsConfigSchema = z.object({
-	enabled: z.boolean(),
-	agents: z.array(SubAgentConfigSchema).optional(),
-});
+const SubAgentsConfigSchema = z
+	.object({
+		agents: z.array(SubAgentConfigSchema).optional(),
+	})
+	.strict();
 
 const NodeToolCredentialSchema = z.object({
 	id: z.string(),
@@ -228,5 +229,5 @@ export function isNodeToolsEnabled(config: AgentJsonConfig['config']): boolean {
 }
 
 export function isSubAgentsEnabled(subAgents: AgentJsonConfig['subAgents']): boolean {
-	return subAgents?.enabled === true;
+	return (subAgents?.agents?.length ?? 0) > 0;
 }
