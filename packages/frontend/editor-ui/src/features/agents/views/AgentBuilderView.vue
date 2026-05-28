@@ -35,6 +35,7 @@ import { useAgentSessionsStore } from '../agentSessions.store';
 import { useAgentBuilderSession } from '../composables/useAgentBuilderSession';
 import { useAgentConfigAutosave } from '../composables/useAgentConfigAutosave';
 import { useAgentBuilderMainTabs } from '../composables/useAgentBuilderMainTabs';
+import { removeProjectAgentFromListCache } from '../composables/useProjectAgentsList';
 import {
 	AGENT_BUILDER_VIEW,
 	AGENT_PREVIEW_VIEW,
@@ -599,6 +600,7 @@ async function onHeaderAction(action: string) {
 
 		try {
 			await deleteAgent(rootStore.restApiContext, capturedProjectId, agentId.value);
+			removeProjectAgentFromListCache(capturedProjectId, agentId.value);
 		} catch (error) {
 			showError(error, 'Could not delete agent');
 			return;
