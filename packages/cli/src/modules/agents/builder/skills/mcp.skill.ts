@@ -23,14 +23,11 @@ MCP servers expose external tool catalogs to the target agent over HTTP. They
 live on the top-level \`mcpServers\` array, and each entry maps 1:1 to a
 connected MCP server.
 
-## Boundaries
+## Use when:
 
-- For external integrations, check \`search_mcp_servers\` first and prefer a
-  registry-backed MCP server when available.
-- Fall back to workflow or node tools only when no suitable MCP server exists
-  for the requested integration.
-- \`search_nodes\` does not return MCP servers; use
-  \`search_mcp_servers\` for MCP discovery.
+- The user asks for an external integration and you need to discover/connect an MCP server for it.
+- The user asks to edit the target agent's MCP servers.
+- The users wants to add a custom MCP server.
 
 ## Workflow
 
