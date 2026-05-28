@@ -41,6 +41,15 @@ export class ChatIntegrationContextQueryExecutor implements IntegrationContextQu
 		try {
 			if (params.query === 'get_user') {
 				const input = getUserInputSchema.parse(params.input);
+				if (!chat.getUser) {
+					return {
+						ok: false,
+						error: {
+							code: 'UNSUPPORTED_QUERY',
+							message: 'This integration connection does not support user lookup.',
+						},
+					};
+				}
 				const user = await chat.getUser(input.userId);
 				return { ok: true, user };
 			}

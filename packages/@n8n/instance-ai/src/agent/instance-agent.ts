@@ -1,4 +1,4 @@
-import { Agent, Memory } from '@n8n/agents';
+import { Agent, Memory, type RuntimeSkillSource } from '@n8n/agents';
 
 import {
 	addSafeMcpTools,
@@ -15,7 +15,11 @@ import {
 } from '../tool-registry';
 import { createAllTools, createOrchestratorDomainTools, createOrchestrationTools } from '../tools';
 import { createToolsFromLocalMcpServer } from '../tools/filesystem/create-tools-from-mcp-server';
-import { ALWAYS_LOADED_TOOL_NAMES, CHECKPOINT_FOLLOW_UP_TOOL_NAMES } from '../tools/tool-ids';
+import {
+	ALWAYS_LOADED_TOOL_NAMES,
+	CHECKPOINT_FOLLOW_UP_TOOL_NAMES,
+	PLANNED_BUILD_FOLLOW_UP_TOOL_NAMES,
+} from '../tools/tool-ids';
 import { buildAgentTraceInputs, mergeTraceRunInputs } from '../tracing/langsmith-tracing';
 import type { CreateInstanceAgentOptions, InstanceAiToolRegistry } from '../types';
 
@@ -23,7 +27,7 @@ import type { CreateInstanceAgentOptions, InstanceAiToolRegistry } from '../type
 
 function splitDeferredTools(
 	tools: InstanceAiToolRegistry,
-	options: { isCheckpointFollowUp?: boolean } = {},
+	options: { isCheckpointFollowUp?: boolean; isPlannedBuildFollowUp?: boolean } = {},
 ) {
 	const coreTools = createToolRegistry();
 	const deferredTools = createToolRegistry();
@@ -31,7 +35,8 @@ function splitDeferredTools(
 	for (const [name, tool] of tools) {
 		if (
 			ALWAYS_LOADED_TOOL_NAMES.has(name) ||
-			(options.isCheckpointFollowUp && CHECKPOINT_FOLLOW_UP_TOOL_NAMES.has(name))
+			(options.isCheckpointFollowUp && CHECKPOINT_FOLLOW_UP_TOOL_NAMES.has(name)) ||
+			(options.isPlannedBuildFollowUp && PLANNED_BUILD_FOLLOW_UP_TOOL_NAMES.has(name))
 		) {
 			coreTools.set(name, tool);
 		} else {
@@ -40,6 +45,22 @@ function splitDeferredTools(
 	}
 
 	return { coreTools, deferredTools };
+}
+
+function trackLoadedRuntimeSkills(
+	source: RuntimeSkillSource,
+	context: CreateInstanceAgentOptions['context'],
+): RuntimeSkillSource {
+	const loadedSkills = (context.loadedSkills ??= new Set<string>());
+
+	return {
+		...source,
+		loadSkill: async (skillId) => {
+			const skill = await source.loadSkill(skillId);
+			if (skill) loadedSkills.add(skill.id);
+			return skill;
+		},
+	};
 }
 
 export async function createInstanceAgent(options: CreateInstanceAgentOptions): Promise<Agent> {
@@ -145,6 +166,7 @@ export async function createInstanceAgent(options: CreateInstanceAgentOptions): 
 		}) ?? allOrchestratorTools;
 	const { coreTools, deferredTools } = splitDeferredTools(tracedOrchestratorTools, {
 		isCheckpointFollowUp: orchestrationContext?.isCheckpointFollowUp,
+		isPlannedBuildFollowUp: Boolean(context.plannedBuildTask),
 	});
 	const hasDeferrableTools = !options.disableDeferredTools && deferredTools.size > 0;
 	const runtimeTools = hasDeferrableTools ? coreTools : tracedOrchestratorTools;
@@ -180,7 +202,7 @@ export async function createInstanceAgent(options: CreateInstanceAgentOptions): 
 	}
 	const runtimeSkills = orchestrationContext?.runtimeSkills;
 	if (hasRuntimeSkills(runtimeSkills)) {
-		agent.skills(runtimeSkills);
+		agent.skills(trackLoadedRuntimeSkills(runtimeSkills, context));
 	}
 	if (telemetry) {
 		agent.telemetry(telemetry);

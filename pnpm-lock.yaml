@@ -506,6 +506,8 @@ overrides:
   '@opentelemetry/sdk-node@<=0.217.0': 0.217.0
   langsmith: 0.6.0
 
+packageExtensionsChecksum: sha256-mjIYAk9SoGIHswdP23KlfRcEjqW17PHhBMOXOG1JfVo=
+
 patchedDependencies:
   '@lezer/highlight':
     hash: 97f85e6fe46f23015ea0dd420e33d584bc2dc71633910cf131321da31b27ca8c
@@ -2120,6 +2122,9 @@ importers:
 
   packages/@n8n/nodes-langchain:
     dependencies:
+      '@aws-sdk/client-bedrock-runtime':
+        specifier: 3.938.0
+        version: 3.938.0
       '@aws-sdk/client-sso-oidc':
         specifier: 3.808.0
         version: 3.808.0
@@ -2261,6 +2266,9 @@ importers:
       '@qdrant/js-client-rest':
         specifier: ^1.16.2
         version: 1.16.2(typescript@6.0.2)
+      '@smithy/node-http-handler':
+        specifier: 4.5.0
+        version: 4.5.0
       '@supabase/supabase-js':
         specifier: 'catalog:'
         version: 2.50.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
@@ -2270,6 +2278,9 @@ importers:
       '@zilliz/milvus2-sdk-node':
         specifier: ^2.5.7
         version: 2.5.7
+      axios:
+        specifier: 1.16.1
+        version: 1.16.1(debug@4.4.3)
       basic-auth:
         specifier: 'catalog:'
         version: 2.0.1
@@ -5509,7 +5520,6 @@ packages:
   '@aws-sdk/middleware-websocket@3.936.0':
     resolution: {integrity: sha512-bPe3rqeugyj/MmjP0yBSZox2v1Wa8Dv39KN+RxVbQroLO8VUitBo6xyZ0oZebhZ5sASwSg58aDcMlX0uFLQnTA==}
     engines: {node: '>= 14.0.0'}
-    deprecated: Please update your @aws-sdk client to a more recent version, such as https://github.com/aws/aws-sdk-js-v3/releases/tag/v3.982.0, if using browser-based WebSocket bidirectional streaming.
 
   '@aws-sdk/nested-clients@3.808.0':
     resolution: {integrity: sha512-NparPojwoBul7XPCasy4psFMJbw7Ys4bz8lVB93ljEUD4VV7mM7zwK27Uhz20B8mBFGmFEoAprPsVymJcK9Vcw==}
@@ -25796,6 +25806,7 @@ snapshots:
       '@azure/monitor-opentelemetry-exporter': 1.0.0-beta.32
       '@microsoft/agents-a365-runtime': 0.1.0-preview.113
       '@opentelemetry/api': 1.9.0
+      '@opentelemetry/core': 2.7.1(@opentelemetry/api@1.9.0)
       '@opentelemetry/exporter-trace-otlp-http': 0.205.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/instrumentation': 0.204.0(@opentelemetry/api@1.9.0)
       '@opentelemetry/resources': 2.7.1(@opentelemetry/api@1.9.0)

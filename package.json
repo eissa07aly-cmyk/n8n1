@@ -97,6 +97,13 @@
       "isolated-vm",
       "sqlite3"
     ],
+    "packageExtensions": {
+      "@microsoft/agents-a365-observability@0.1.0-preview.113": {
+        "dependencies": {
+          "@opentelemetry/core": "^2.1.0"
+        }
+      }
+    },
     "overrides": {
       "libphonenumber-js": "npm:empty-npm-package@1.0.0",
       "@browserbasehq/stagehand": "npm:empty-npm-package@1.0.0",

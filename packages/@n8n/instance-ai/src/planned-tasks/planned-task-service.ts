@@ -116,6 +116,38 @@ function updateTaskRecord(
 	return { ...graph, tasks };
 }
 
+function revertRunningTaskToPlanned(
+	graph: PlannedTaskGraph,
+	taskId: string,
+	kind: PlannedTaskRecord['kind'],
+): { result: CheckpointSettleResult; graph: PlannedTaskGraph } {
+	const task = graph.tasks.find((t) => t.id === taskId);
+	if (!task) return { result: { ok: false, reason: 'not-found' }, graph };
+	if (task.kind !== kind) {
+		return { result: { ok: false, reason: 'wrong-kind', actual: { kind: task.kind } }, graph };
+	}
+	if (task.status !== 'running') {
+		return {
+			result: { ok: false, reason: 'wrong-status', actual: { status: task.status } },
+			graph,
+		};
+	}
+
+	const tasks = graph.tasks.map<PlannedTaskRecord>((t) => {
+		if (t.id !== taskId) return t;
+		const {
+			agentId: _agentId,
+			backgroundTaskId: _backgroundTaskId,
+			startedAt: _startedAt,
+			...rest
+		} = t;
+		return { ...rest, status: 'planned' };
+	});
+
+	const next: PlannedTaskGraph = { ...graph, tasks };
+	return { result: { ok: true, graph: next }, graph: next };
+}
+
 export class PlannedTaskCoordinator implements PlannedTaskService {
 	constructor(private readonly storage: PlannedTaskStorage) {}
 
@@ -201,16 +233,20 @@ export class PlannedTaskCoordinator implements PlannedTaskService {
 		taskId: string,
 		update: { result?: string; outcome?: Record<string, unknown>; finishedAt?: number },
 	): Promise<PlannedTaskGraph | null> {
-		return await this.storage.update(threadId, (graph) =>
-			updateTaskRecord(graph, taskId, (task) => ({
+		return await this.storage.update(threadId, (graph) => {
+			const task = graph.tasks.find((t) => t.id === taskId);
+			if (!task) return null;
+			if (task.status !== 'running') return graph;
+
+			return updateTaskRecord(graph, taskId, () => ({
 				...task,
 				status: 'succeeded',
 				result: update.result ?? task.result,
 				outcome: update.outcome ?? task.outcome,
 				finishedAt: update.finishedAt ?? Date.now(),
 				error: undefined,
-			})),
-		);
+			}));
+		});
 	}
 
 	async markFailed(
@@ -312,29 +348,29 @@ export class PlannedTaskCoordinator implements PlannedTaskService {
 		let result: CheckpointSettleResult = { ok: false, reason: 'not-found' };
 
 		await this.storage.update(threadId, (graph) => {
-			const task = graph.tasks.find((t) => t.id === taskId);
-			if (!task) {
-				result = { ok: false, reason: 'not-found' };
-				return graph;
-			}
-			if (task.kind !== 'checkpoint') {
-				result = { ok: false, reason: 'wrong-kind', actual: { kind: task.kind } };
-				return graph;
-			}
-			if (task.status !== 'running') {
-				result = { ok: false, reason: 'wrong-status', actual: { status: task.status } };
-				return graph;
-			}
+			const reverted = revertRunningTaskToPlanned(graph, taskId, 'checkpoint');
+			result = reverted.result;
+			return reverted.graph;
+		});
 
-			const tasks = graph.tasks.map<PlannedTaskRecord>((t) => {
-				if (t.id !== taskId) return t;
-				const { agentId: _agentId, startedAt: _startedAt, ...rest } = t;
-				return { ...rest, status: 'planned' };
-			});
+		return result;
+	}
 
-			const next: PlannedTaskGraph = { ...graph, tasks };
-			result = { ok: true, graph: next };
-			return next;
+	/**
+	 * Rewind a running workflow-build task back to `planned` after a follow-up
+	 * scheduling race. This mirrors checkpoint retry behavior: the build did not
+	 * fail, it simply never started its follow-up turn.
+	 */
+	async revertWorkflowBuildToPlanned(
+		threadId: string,
+		taskId: string,
+	): Promise<CheckpointSettleResult> {
+		let result: CheckpointSettleResult = { ok: false, reason: 'not-found' };
+
+		await this.storage.update(threadId, (graph) => {
+			const reverted = revertRunningTaskToPlanned(graph, taskId, 'build-workflow');
+			result = reverted.result;
+			return reverted.graph;
 		});
 
 		return result;
@@ -470,11 +506,18 @@ export class PlannedTaskCoordinator implements PlannedTaskService {
 				return graph;
 			}
 
-			// Checkpoints run inline in the orchestrator (sequential, one per follow-up run).
-			// Give them priority over background dispatch to keep sequencing clean.
+			// Checkpoints and workflow builds run inline in the orchestrator
+			// (sequential, one per follow-up run). Give them priority over
+			// background dispatch to keep sequencing clean.
 			const readyCheckpoint = readyTasks.find((t) => t.kind === 'checkpoint');
 			if (readyCheckpoint) {
 				action = { type: 'orchestrate-checkpoint', graph, tasks: [readyCheckpoint] };
+				return graph;
+			}
+
+			const readyWorkflowBuild = readyTasks.find((t) => t.kind === 'build-workflow');
+			if (readyWorkflowBuild) {
+				action = { type: 'orchestrate-build-workflow', graph, tasks: [readyWorkflowBuild] };
 				return graph;
 			}
 

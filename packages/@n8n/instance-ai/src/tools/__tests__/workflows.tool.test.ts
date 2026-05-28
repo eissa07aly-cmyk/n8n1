@@ -108,6 +108,8 @@ describe('workflows tool', () => {
 			'list',
 			'get',
 			'get-as-code',
+			'create',
+			'update',
 		] as const satisfies readonly WorkflowAction[];
 
 		it('should support get-as-code on full surface', async () => {
@@ -160,6 +162,13 @@ describe('workflows tool', () => {
 			[{ action: 'unpublish', workflowId: 'w1' }],
 			[{ action: 'delete', workflowId: 'w1' }],
 			[{ action: 'unarchive', workflowId: 'w1' }],
+			[
+				{
+					action: 'update-json',
+					workflowId: 'w1',
+					workflow: { name: 'Test WF', nodes: [], connections: {} },
+				},
+			],
 			[{ action: 'list-versions', workflowId: 'w1' }],
 			[{ action: 'get-version', workflowId: 'w1', versionId: 'v1' }],
 			[{ action: 'restore-version', workflowId: 'w1', versionId: 'v1' }],
@@ -187,6 +196,124 @@ describe('workflows tool', () => {
 
 			expect(schema.safeParse({ action: 'publish', workflowId: 'w1' }).success).toBe(false);
 			expect(context.workflowService.publish).not.toHaveBeenCalled();
+		});
+
+		it('should let the orchestrator inspect SDK code and update existing workflows without direct creation', () => {
+			const context = createMockContext();
+			const tool = createWorkflowsTool(context, 'orchestrator');
+			const schema = getInputSchema(tool);
+
+			expect(schema.safeParse({ action: 'get-as-code', workflowId: 'w1' }).success).toBe(true);
+			expect(
+				schema.safeParse({ action: 'create', name: 'Test WF', code: 'export default workflow()' })
+					.success,
+			).toBe(false);
+			expect(
+				schema.safeParse({
+					action: 'update',
+					workflowId: 'w1',
+					patches: [{ old_str: 'old', new_str: 'new' }],
+				}).success,
+			).toBe(true);
+			expect(
+				schema.safeParse({
+					action: 'update-json',
+					workflowId: 'w1',
+					workflow: { name: 'Test WF', nodes: [], connections: {} },
+				}).success,
+			).toBe(false);
+			expect(getDescription(tool)).toContain('convert existing workflows to TypeScript SDK code');
+			expect(getDescription(tool)).toContain('update from workflow SDK code or patches');
+			expect(getDescription(tool)).not.toContain('create from workflow SDK code');
+			expect(getDescription(tool)).not.toContain('save a modified WorkflowJSON');
+		});
+
+		it('should allow planned build follow-ups to create workflows on the orchestrator surface', () => {
+			const context = createMockContext();
+			const tool = createWorkflowsTool(context, {
+				surface: 'orchestrator',
+				allowedActions: builderWorkflowActions,
+			});
+			const schema = getInputSchema(tool);
+
+			expect(
+				schema.safeParse({ action: 'create', name: 'Test WF', code: 'export default workflow()' })
+					.success,
+			).toBe(true);
+			expect(
+				schema.safeParse({
+					action: 'update',
+					workflowId: 'w1',
+					patches: [{ old_str: 'old', new_str: 'new' }],
+				}).success,
+			).toBe(true);
+		});
+
+		it('should remind planned create follow-ups that workItemId is not a workflowId', async () => {
+			const context = createMockContext({
+				plannedBuildTask: {
+					threadId: 'thread-1',
+					taskId: 'task-1',
+					workItemId: 'wi_123',
+					title: 'Build Slack to Notion',
+					spec: 'Build it',
+					plannedTaskService: {},
+				} as unknown as InstanceAiContext['plannedBuildTask'],
+			});
+			context.workflowService.list = jest.fn().mockResolvedValue([]);
+			const tool = createWorkflowsTool(context, {
+				surface: 'orchestrator',
+				allowedActions: ['list', 'get', 'get-as-code', 'create'],
+			});
+
+			const result = await executeTool(tool, { action: 'list' } as never, {} as never);
+
+			expect(result).toMatchObject({
+				workflows: [],
+				plannedBuildHint: expect.stringContaining('creates a new workflow'),
+			});
+			expect((result as { plannedBuildHint: string }).plannedBuildHint).toContain(
+				'workItemId wi_123 is tracking metadata, not a workflow ID',
+			);
+			expect((result as { plannedBuildHint: string }).plannedBuildHint).toContain(
+				'workflows(action="create")',
+			);
+		});
+
+		it('should steer planned create follow-ups away from guessed workflow IDs', async () => {
+			const context = createMockContext({
+				plannedBuildTask: {
+					threadId: 'thread-1',
+					taskId: 'task-1',
+					workItemId: 'wi_123',
+					title: 'Build Slack to Notion',
+					spec: 'Build it',
+					plannedTaskService: {},
+				} as unknown as InstanceAiContext['plannedBuildTask'],
+			});
+			context.workflowService.get = jest.fn().mockRejectedValue(new Error('not found'));
+			context.workflowService.list = jest.fn().mockResolvedValue([]);
+			const tool = createWorkflowsTool(context, {
+				surface: 'orchestrator',
+				allowedActions: ['list', 'get', 'get-as-code', 'create'],
+			});
+
+			const result = await executeTool(
+				tool,
+				{ action: 'get', workflowId: 'wi_123' } as never,
+				{} as never,
+			);
+
+			expect(result).toMatchObject({
+				workflowId: 'wi_123',
+				found: false,
+				availableWorkflows: [],
+				hint: expect.stringContaining('workflows(action="create")'),
+			});
+			expect((result as { hint: string }).hint).toContain(
+				'workItemId wi_123 is tracking metadata, not a workflow ID',
+			);
+			expect((result as { hint: string }).hint).toContain('Do not retry');
 		});
 	});
 
@@ -805,6 +932,31 @@ describe('workflows tool', () => {
 	});
 
 	describe('setup action', () => {
+		it('should block setup during planned build follow-up turns', async () => {
+			const context = createMockContext({
+				plannedBuildTask: {
+					taskId: 'task-1',
+					title: 'Build workflow',
+					threadId: 'thread-1',
+					workItemId: 'wi_1',
+				} as unknown as NonNullable<InstanceAiContext['plannedBuildTask']>,
+			});
+
+			const tool = createWorkflowsTool(context, 'full');
+			const result = await executeTool(tool, { action: 'setup', workflowId: 'wf1' }, {
+				resumeData: undefined,
+			} as never);
+
+			expect(result).toEqual({
+				success: false,
+				denied: true,
+				reason:
+					'Setup is handled by the verification checkpoint after the planned build is saved. Stop after workflows(action="create"|"update") in the build follow-up.',
+			});
+			expect(analyzeWorkflow).not.toHaveBeenCalled();
+			expect(applyNodeChanges).not.toHaveBeenCalled();
+		});
+
 		it('should block setup when updateWorkflow permission is blocked', async () => {
 			const context = createMockContext({
 				permissions: { updateWorkflow: 'blocked' },
@@ -925,6 +1077,44 @@ describe('workflows tool', () => {
 			expect(applyNodeChanges).toHaveBeenCalledWith(context, 'wf1', undefined, {
 				'HTTP Request': { url: 'https://example.com/api' },
 			});
+		});
+
+		it('keeps trigger-test rollback snapshots scoped to each workflow', async () => {
+			const context = createMockContext();
+			const snapshotA = {
+				name: 'Workflow A',
+				nodes: [{ name: 'A', type: 'n8n-nodes-base.manualTrigger' }],
+				connections: {},
+			};
+			(context.workflowService.getAsWorkflowJSON as jest.Mock).mockResolvedValueOnce(snapshotA);
+			(applyNodeChanges as jest.Mock).mockResolvedValueOnce({
+				applied: [],
+				failed: [{ nodeName: 'A', error: 'invalid setup' }],
+			});
+
+			const tool = createWorkflowsTool(context, 'full');
+			const failedPreTest = await executeTool(tool, { action: 'setup', workflowId: 'wf-a' }, {
+				resumeData: {
+					approved: true,
+					action: 'test-trigger',
+					testTriggerNode: 'A',
+					nodeParameters: { A: { path: 'test' } },
+				},
+			} as never);
+
+			expect(failedPreTest).toMatchObject({ success: false });
+			expect(context.workflowService.updateFromWorkflowJSON).toHaveBeenCalledWith(
+				'wf-a',
+				snapshotA,
+			);
+
+			(context.workflowService.updateFromWorkflowJSON as jest.Mock).mockClear();
+
+			await executeTool(tool, { action: 'setup', workflowId: 'wf-b' }, {
+				resumeData: { approved: false },
+			} as never);
+
+			expect(context.workflowService.updateFromWorkflowJSON).not.toHaveBeenCalled();
 		});
 	});
 

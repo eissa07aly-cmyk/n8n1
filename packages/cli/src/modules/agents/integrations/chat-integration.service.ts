@@ -10,7 +10,7 @@ import type { User } from '@n8n/db';
 import { ProjectRelationRepository, UserRepository } from '@n8n/db';
 import { OnLeaderStepdown, OnLeaderTakeover, OnPubSubEvent } from '@n8n/decorators';
 import { Container, Service } from '@n8n/di';
-import type { Channel, Thread, UserInfo } from 'chat';
+import type { Adapter, Author, Channel, Thread } from 'chat';
 import { InstanceSettings } from 'n8n-core';
 
 import { CredentialsFinderService } from '@/credentials/credentials-finder.service';
@@ -41,6 +41,8 @@ type WebhookHandler = (
 	options?: { waitUntil?: (task: Promise<unknown>) => void },
 ) => Promise<Response>;
 
+export type UserInfo = Author;
+
 export interface ChatInstance {
 	initialize(): Promise<void>;
 	shutdown(): Promise<void>;
@@ -51,8 +53,19 @@ export interface ChatInstance {
 	openDM(user: string): Promise<Thread>;
 	thread(threadId: string): Thread;
 	channel(channelId: string): Channel;
-	getUser(user: string): Promise<UserInfo | null>;
+	getUser?: (user: string) => Promise<UserInfo | null>;
 }
+
+type ChatRuntimeCompat = Omit<ChatInstance, 'thread'> & {
+	adapters?: Map<string, Adapter>;
+	createThread?: (
+		adapter: Adapter,
+		threadId: string,
+		initialMessage?: unknown,
+		isSubscribedContext?: boolean,
+	) => Thread;
+	thread?: (threadId: string) => Thread;
+};
 
 interface ChatAgentConnection {
 	chat: ChatInstance;
@@ -241,10 +254,7 @@ export class ChatIntegrationService {
 			}
 		}
 
-		// The `chat` variable is returned by `new Chat(...)` from the ESM-only
-		// package. Its runtime shape matches our local `ChatInstance` interface.
-		// We validate the required methods exist before storing.
-		const chatInstance = chat as ChatInstance;
+		const chatInstance = toChatInstance(chat);
 
 		this.connections.set(key, {
 			chat: chatInstance,
@@ -679,4 +689,21 @@ export class ChatIntegrationService {
 			? { skipExternalHooks, settings: integration.settings }
 			: { skipExternalHooks };
 	}
+}
+
+function toChatInstance(chat: unknown): ChatInstance {
+	const runtime = chat as ChatRuntimeCompat;
+
+	runtime.thread ??= (threadId: string) => {
+		const adapterName = threadId.split(':')[0];
+		const adapter = adapterName ? runtime.adapters?.get(adapterName) : undefined;
+
+		if (!adapter || !runtime.createThread) {
+			throw new Error(`Chat SDK cannot create a thread for "${threadId}".`);
+		}
+
+		return runtime.createThread(adapter, threadId);
+	};
+
+	return runtime as ChatInstance;
 }

@@ -363,7 +363,7 @@ export const verifyBuiltWorkflowInputSchema = z.object({
 				'Form Trigger → flat field map like {name: "Alice", email: "a@b.c"} (do NOT wrap in formFields); ' +
 				'Webhook → the body payload like {event: "signup", userId: "..."} (adapter wraps it under body); ' +
 				'Chat Trigger → {chatInput: "user message"}; ' +
-				'Schedule Trigger → omit inputData. ' +
+				'Manual Trigger → pass a flat field map or omit inputData; Schedule Trigger → omit inputData. ' +
 				"If you wrap a form payload in {formFields: {...}} the adapter will reject the call — the builder's " +
 				'downstream expressions reference $json.<field>, matching the flat production shape.',
 		),
@@ -398,21 +398,67 @@ const remediationOutputSchema = z
 	})
 	.optional();
 
+type VerifyBuiltWorkflowInput = z.infer<typeof verifyBuiltWorkflowInputSchema>;
+type VerificationRunResult = Awaited<
+	ReturnType<NonNullable<OrchestrationContext['domainContext']>['executionService']['run']>
+>;
+
+async function persistTerminalVerificationVerdict({
+	context,
+	input,
+	workflowId,
+	executionId,
+	remediation,
+}: {
+	context: OrchestrationContext;
+	input: VerifyBuiltWorkflowInput;
+	workflowId: string;
+	executionId?: string;
+	remediation: RemediationMetadata;
+}): Promise<void> {
+	try {
+		await context.workflowTaskService?.reportVerificationVerdict({
+			workItemId: input.workItemId,
+			runId: context.runId,
+			workflowId,
+			executionId,
+			verdict: remediation.category === 'needs_setup' ? 'needs_user_input' : 'failed_terminal',
+			failureSignature: remediation.reason,
+			diagnosis: remediation.guidance,
+			remediation,
+			summary: remediation.guidance,
+		});
+	} catch (error) {
+		context.logger.warn('verify-built-workflow: failed to persist terminal verdict', {
+			workItemId: input.workItemId,
+			workflowId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+	try {
+		context.trackTelemetry?.('Builder remediation guard fired', {
+			thread_id: context.threadId,
+			run_id: context.runId,
+			work_item_id: input.workItemId,
+			workflow_id: workflowId,
+			category: remediation.category,
+			attempt_count: remediation.attemptCount,
+			reason: remediation.reason,
+		});
+	} catch (error) {
+		context.logger.warn('verify-built-workflow: failed to emit remediation telemetry', {
+			workItemId: input.workItemId,
+			workflowId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
 function classifyVerificationFailure(
 	error: string | undefined,
 	status: string | undefined,
 	buildOutcome: WorkflowBuildOutcome,
 ): RemediationMetadata {
-	if (buildOutcome.hasUnresolvedPlaceholders) {
-		return createRemediation({
-			category: 'needs_setup',
-			shouldEdit: false,
-			reason: 'mocked_credentials_or_placeholders',
-			guidance:
-				'Workflow submitted successfully, but verification is blocked by unresolved setup values. Stop code edits and route to workflows(action="setup").',
-		});
-	}
-
 	if (status === 'waiting') {
 		return createRemediation({
 			category: 'needs_setup',
@@ -427,6 +473,10 @@ function classifyVerificationFailure(
 	const mockedCredentialTypeCount = buildOutcome.mockedCredentialTypes?.length ?? 0;
 	const mockedNodeCount = buildOutcome.mockedNodeNames?.length ?? 0;
 	const hasMockedCredentialContext = Boolean(mockedCredentialTypeCount > 0 || mockedNodeCount > 0);
+	const hasUnresolvedSetupContext = buildOutcome.hasUnresolvedPlaceholders === true;
+	const hasSetupContext = hasMockedCredentialContext || hasUnresolvedSetupContext;
+	const workflowIssueGate =
+		normalized.includes('workflow has issues') || normalized.includes('cannot be executed');
 	if (
 		normalized.includes('credential') ||
 		normalized.includes('unauthorized') ||
@@ -434,16 +484,21 @@ function classifyVerificationFailure(
 		normalized.includes('401') ||
 		normalized.includes('403') ||
 		normalized.includes('free tier') ||
-		normalized.includes('quota')
+		normalized.includes('quota') ||
+		(hasSetupContext && workflowIssueGate) ||
+		(hasUnresolvedSetupContext &&
+			(normalized.includes('placeholder') ||
+				normalized.includes('required parameter') ||
+				(normalized.includes('parameter') && normalized.includes('required'))))
 	) {
 		return createRemediation({
 			category: 'needs_setup',
 			shouldEdit: false,
-			reason: hasMockedCredentialContext
+			reason: hasSetupContext
 				? 'mocked_credentials_or_placeholders'
 				: 'credential_or_setup_failure',
-			guidance: hasMockedCredentialContext
-				? 'Workflow submitted successfully, but verification is blocked by mocked credentials. Stop code edits and route to workflows(action="setup").'
+			guidance: hasSetupContext
+				? 'Workflow submitted successfully, but verification is blocked by real credentials or setup values. Stop code edits and route to workflows(action="setup").'
 				: 'Workflow submitted successfully, but verification requires credential or account setup. Stop code edits and route to workflows(action="setup").',
 		});
 	}
@@ -478,7 +533,7 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 		.description(
 			'Run a built workflow using sidecar verification context from the build outcome. ' +
 				'Use this when verification needs build-outcome pin data, mocked credential context, or trigger-shaped inputData. ' +
-				'Use `executions(action="run")` for ordinary manual/schedule runs with real credentials. ' +
+				'Use `executions(action="run", requireApproval=false)` for ordinary internal manual/schedule verification with real credentials. ' +
 				'CRITICAL: `inputData` shape depends on the trigger type — see the per-trigger guidance on the inputData field. ' +
 				'Passing the wrong shape (e.g. wrapping form fields under `formFields`) produces null downstream values that ' +
 				'look like an expression bug but are not — do not patch the workflow, re-run verify with the correct shape.',
@@ -507,7 +562,7 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 				guidance: z.string().optional(),
 			}),
 		)
-		.handler(async (input: z.infer<typeof verifyBuiltWorkflowInputSchema>) => {
+		.handler(async (input: VerifyBuiltWorkflowInput) => {
 			if (!context.workflowTaskService || !context.domainContext) {
 				const remediation = createRemediation({
 					category: 'blocked',
@@ -584,10 +639,45 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 				context.logger,
 			);
 
-			const result = await context.domainContext.executionService.run(workflowId, input.inputData, {
-				timeout: input.timeout,
-				pinData: buildOutcome.verificationPinData as Record<string, unknown[]> | undefined,
-			});
+			let result: VerificationRunResult;
+			try {
+				result = await context.domainContext.executionService.run(workflowId, input.inputData, {
+					timeout: input.timeout,
+					pinData: buildOutcome.verificationPinData as Record<string, unknown[]> | undefined,
+				});
+			} catch (error) {
+				const errorMessage = error instanceof Error ? error.message : String(error);
+				const remediation = classifyVerificationFailure(errorMessage, 'error', buildOutcome);
+				try {
+					await context.workflowTaskService.updateBuildOutcome(input.workItemId, {
+						verification: {
+							attempted: true,
+							success: false,
+							status: 'error',
+							failureSignature: errorMessage,
+							evidence: { errorMessage },
+							verifiedAt: new Date().toISOString(),
+						},
+					});
+				} catch {
+					// intentional: verification record persistence is advisory
+				}
+				if (!remediation.shouldEdit) {
+					await persistTerminalVerificationVerdict({
+						context,
+						input,
+						workflowId,
+						remediation,
+					});
+				}
+				return {
+					success: false,
+					status: 'error' as const,
+					error: errorMessage,
+					remediation,
+					guidance: remediation.guidance,
+				};
+			}
 
 			// Treat `waiting` as success when the workflow produced output and recorded
 			// no error. `waiting` is a terminal-ish state for several legitimate flows:
@@ -653,43 +743,13 @@ export function createVerifyBuiltWorkflowTool(context: OrchestrationContext) {
 			}
 
 			if (remediation && !remediation.shouldEdit) {
-				try {
-					await context.workflowTaskService.reportVerificationVerdict({
-						workItemId: input.workItemId,
-						runId: context.runId,
-						workflowId,
-						executionId: result.executionId || undefined,
-						verdict:
-							remediation.category === 'needs_setup' ? 'needs_user_input' : 'failed_terminal',
-						failureSignature: remediation.reason,
-						diagnosis: remediation.guidance,
-						remediation,
-						summary: remediation.guidance,
-					});
-				} catch (error) {
-					context.logger.warn('verify-built-workflow: failed to persist terminal verdict', {
-						workItemId: input.workItemId,
-						workflowId,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
-				try {
-					context.trackTelemetry?.('Builder remediation guard fired', {
-						thread_id: context.threadId,
-						run_id: context.runId,
-						work_item_id: input.workItemId,
-						workflow_id: workflowId,
-						category: remediation.category,
-						attempt_count: remediation.attemptCount,
-						reason: remediation.reason,
-					});
-				} catch (error) {
-					context.logger.warn('verify-built-workflow: failed to emit remediation telemetry', {
-						workItemId: input.workItemId,
-						workflowId,
-						error: error instanceof Error ? error.message : String(error),
-					});
-				}
+				await persistTerminalVerificationVerdict({
+					context,
+					input,
+					workflowId,
+					executionId: result.executionId || undefined,
+					remediation,
+				});
 			}
 
 			const maxDataChars = input.maxDataChars ?? DEFAULT_NODE_PREVIEW_CHARS;

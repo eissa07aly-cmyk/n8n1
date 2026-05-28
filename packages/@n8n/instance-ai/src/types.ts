@@ -642,8 +642,13 @@ export interface InstanceAiContext {
 	permissions?: InstanceAiPermissions;
 	/** When set, `runWorkflow: 'always_allow'` only short-circuits HITL approval for these workflow IDs.
 	 *  Used by checkpoint follow-up runs to scope the override to the workflows the checkpoint is
-	 *  verifying — `executions(action="run")` on any other workflow still requires user approval. */
+	 *  verifying. Scoped runs must also pass `requireApproval: false`; omitted or true approval intent,
+	 *  or any other workflow ID, still requires user approval. */
 	allowedRunWorkflowIds?: ReadonlySet<string>;
+	/** When set, `updateWorkflow: 'always_allow'` only short-circuits HITL approval for these workflow IDs.
+	 *  Used by checkpoint follow-up runs so verification repairs can update approved workflow outputs
+	 *  without granting broad update access to unrelated workflows. */
+	allowedUpdateWorkflowIds?: ReadonlySet<string>;
 	/** When true, the instance is in read-only mode (source control branchReadOnly). */
 	branchReadOnly?: boolean;
 	/** When `false`, callers must avoid surfacing node parameter values (or anything derived from them
@@ -659,8 +664,8 @@ export interface InstanceAiContext {
 	runId?: string;
 	/**
 	 * IDs of workflows the agent created during the **currently active plan
-	 * cycle**. Populated by build-workflow and submit-workflow on every
-	 * successful create, and hydrated at run start from the persisted plan
+	 * cycle**. Populated by build-workflow on every successful create, and
+	 * hydrated at run start from the persisted plan
 	 * graph when — and only when — the plan is still `active` or
 	 * `awaiting_replan`, so replan follow-up runs keep the bypass active but
 	 * the window closes as soon as the plan settles. Consumed by the delete
@@ -675,6 +680,23 @@ export interface InstanceAiContext {
 	currentUserAttachments?: InstanceAiAttachment[];
 	/** Optional logger for diagnostics from domain tools. */
 	logger?: Logger;
+	/** Planned build task currently being executed by the orchestrator with the workflow-builder skill. */
+	plannedBuildTask?: {
+		threadId: string;
+		taskId: string;
+		workItemId: string;
+		title: string;
+		spec: string;
+		workflowId?: string;
+		plannedTaskService: PlannedTaskService;
+		workflowTaskService?: WorkflowTaskService;
+		onSavedWorkflowBuildOutcome?: (saved: {
+			result: string;
+			outcome: WorkflowBuildOutcome;
+		}) => void;
+	};
+	/** Runtime skills loaded in this agent turn, populated by the orchestrator's load_skill wrapper. */
+	loadedSkills?: Set<string>;
 	/** Synchronous node-types provider used by host-side schema validation
 	 *  (`validateWorkflow` from `@n8n/workflow-sdk`). Plumbed from the CLI
 	 *  adapter; absent in pure-package contexts where no NodeTypes instance
@@ -692,8 +714,9 @@ export interface TaskStorage {
 // ── Planned task graphs ─────────────────────────────────────────────────────
 
 export const PLANNED_TASK_KINDS = ['delegate', 'build-workflow', 'checkpoint'] as const;
-export const STORED_PLANNED_TASK_KINDS = PLANNED_TASK_KINDS;
-export type PlannedTaskKind = (typeof STORED_PLANNED_TASK_KINDS)[number];
+export const STORED_PLANNED_TASK_KINDS = [...PLANNED_TASK_KINDS, 'manage-data-tables'] as const;
+export type PlannedTaskKind = (typeof PLANNED_TASK_KINDS)[number];
+export type StoredPlannedTaskKind = (typeof STORED_PLANNED_TASK_KINDS)[number];
 
 export interface PlannedTask {
 	id: string;
@@ -736,6 +759,7 @@ export interface PlannedTaskGraph {
 export type PlannedTaskSchedulerAction =
 	| { type: 'none'; graph: PlannedTaskGraph | null }
 	| { type: 'dispatch'; graph: PlannedTaskGraph; tasks: PlannedTaskRecord[] }
+	| { type: 'orchestrate-build-workflow'; graph: PlannedTaskGraph; tasks: PlannedTaskRecord[] }
 	| { type: 'orchestrate-checkpoint'; graph: PlannedTaskGraph; tasks: PlannedTaskRecord[] }
 	| { type: 'replan'; graph: PlannedTaskGraph; failedTask: PlannedTaskRecord }
 	| { type: 'synthesize'; graph: PlannedTaskGraph };
@@ -762,6 +786,7 @@ export interface PlannedTaskService {
 		taskId: string,
 		update: { error?: string; finishedAt?: number },
 	): Promise<PlannedTaskGraph | null>;
+	revertWorkflowBuildToPlanned(threadId: string, taskId: string): Promise<CheckpointSettleResult>;
 	markCancelled(
 		threadId: string,
 		taskId: string,
@@ -999,8 +1024,8 @@ export interface SpawnBackgroundTaskOptions {
 	};
 	/**
 	 * Link this background task to a running checkpoint in the planned-task
-	 * graph. Set when the orchestrator spawns a detached sub-agent (builder,
-	 * research, data-table, delegate) from inside a
+	 * graph. Set when the orchestrator spawns a detached child task (research,
+	 * data-table, delegate) from inside a
 	 * `<planned-task-follow-up type="checkpoint">` turn. The post-run safety
 	 * net defers failing the checkpoint while a child with this id is still
 	 * running, and settlement re-emits the checkpoint follow-up when the last

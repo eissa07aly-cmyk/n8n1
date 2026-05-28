@@ -151,6 +151,100 @@ describe('verify-built-workflow tool — remediation guard', () => {
 		expect(context.workflowTaskService!.reportVerificationVerdict).not.toHaveBeenCalled();
 	});
 
+	it('routes generic workflow issue gates to setup when the build has unresolved setup context', async () => {
+		const context = createContext();
+		jest.mocked(context.workflowTaskService!.getBuildOutcome).mockResolvedValue({
+			workItemId: 'wi_1',
+			taskId: 'task_1',
+			workflowId: 'wf_1',
+			submitted: true,
+			triggerType: 'manual_or_testable',
+			needsUserInput: true,
+			hasUnresolvedPlaceholders: true,
+			mockedCredentialTypes: ['slackApi'],
+			mockedNodeNames: ['Slack'],
+			summary: 'Built',
+		});
+		jest
+			.mocked(context.domainContext!.executionService.run)
+			.mockRejectedValue(
+				new Error(
+					'The workflow has issues and cannot be executed for that reason. Please fix them first.',
+				),
+			);
+		const tool = createVerifyBuiltWorkflowTool(context);
+
+		const result = await executeTool(tool, { workItemId: 'wi_1', workflowId: 'wf_1' });
+
+		expect(result.remediation).toMatchObject({
+			category: 'needs_setup',
+			shouldEdit: false,
+			reason: 'mocked_credentials_or_placeholders',
+		});
+		expect(context.workflowTaskService!.reportVerificationVerdict).toHaveBeenCalledWith(
+			expect.objectContaining({ verdict: 'needs_user_input' }),
+		);
+	});
+
+	it('does not treat unresolved placeholders as setup when the execution error is code-fixable', async () => {
+		const context = createContext();
+		jest.mocked(context.workflowTaskService!.getBuildOutcome).mockResolvedValue({
+			workItemId: 'wi_1',
+			taskId: 'task_1',
+			workflowId: 'wf_1',
+			submitted: true,
+			triggerType: 'manual_or_testable',
+			needsUserInput: true,
+			hasUnresolvedPlaceholders: true,
+			summary: 'Built',
+		});
+		jest.mocked(context.domainContext!.executionService.run).mockResolvedValue({
+			executionId: 'exec_1',
+			status: 'error',
+			error: 'Code node failed: Cannot read properties of undefined',
+		});
+		const tool = createVerifyBuiltWorkflowTool(context);
+
+		const result = await executeTool(tool, { workItemId: 'wi_1', workflowId: 'wf_1' });
+
+		expect(result.remediation).toMatchObject({
+			category: 'code_fixable',
+			shouldEdit: true,
+			reason: 'runtime_failure',
+		});
+		expect(context.workflowTaskService!.reportVerificationVerdict).not.toHaveBeenCalled();
+	});
+
+	it('routes setup-shaped placeholder failures to setup', async () => {
+		const context = createContext();
+		jest.mocked(context.workflowTaskService!.getBuildOutcome).mockResolvedValue({
+			workItemId: 'wi_1',
+			taskId: 'task_1',
+			workflowId: 'wf_1',
+			submitted: true,
+			triggerType: 'manual_or_testable',
+			needsUserInput: true,
+			hasUnresolvedPlaceholders: true,
+			summary: 'Built',
+		});
+		jest.mocked(context.domainContext!.executionService.run).mockResolvedValue({
+			executionId: 'exec_1',
+			status: 'error',
+			error: 'Node parameter "Database" is required',
+		});
+		const tool = createVerifyBuiltWorkflowTool(context);
+
+		const result = await executeTool(tool, { workItemId: 'wi_1', workflowId: 'wf_1' });
+
+		expect(result.remediation).toMatchObject({
+			category: 'needs_setup',
+			shouldEdit: false,
+		});
+		expect(context.workflowTaskService!.reportVerificationVerdict).toHaveBeenCalledWith(
+			expect.objectContaining({ verdict: 'needs_user_input' }),
+		);
+	});
+
 	it('returns terminal remediation even when verdict persistence and telemetry fail', async () => {
 		const trackTelemetry = jest.fn(() => {
 			throw new Error('telemetry unavailable');

@@ -265,7 +265,7 @@ describe('runExpectedToolsInvokedCheck', () => {
 				dataTableScenario,
 				makeOutcome({
 					toolCalls: [{ toolName: 'load_skill', args: { skillId: 'data-table-manager' } }],
-					agents: [{ role: 'workflow-builder', tools: ['data-tables'] }],
+					agents: [{ role: 'research', tools: ['data-tables'] }],
 				}),
 			);
 

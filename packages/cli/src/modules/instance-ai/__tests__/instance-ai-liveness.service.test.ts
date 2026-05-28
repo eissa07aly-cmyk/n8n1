@@ -145,7 +145,7 @@ describe('InstanceAiLivenessService', () => {
 			{
 				threadId: 'thread-bg',
 				taskId: 'task-1',
-				role: 'workflow-builder',
+				role: 'research',
 				timeoutReason: 'idle_timeout',
 			},
 		]);
@@ -173,7 +173,7 @@ describe('InstanceAiLivenessService', () => {
 			timeoutOptions?.shouldSkipTask?.({
 				threadId: 'thread-bg',
 				taskId: 'task-1',
-				role: 'workflow-builder',
+				role: 'research',
 			}),
 		).toBe(true);
 		expect(runState.hasPendingConfirmationForThread).toHaveBeenCalledWith('thread-bg');
