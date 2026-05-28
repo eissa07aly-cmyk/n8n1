@@ -267,12 +267,32 @@ export class InstanceAiPage extends BasePage {
 	}
 
 	/**
-	 * Wait for the plan-review panel to appear and approve it. New workflow
-	 * builds now route through the planner and pause at `awaiting_approval`
-	 * until the user approves — without this step the build never starts.
+	 * Wait for the workflow build approval and approve it. Builder runs may
+	 * render either the plan-review panel or the standard workflows approval row.
 	 */
 	async approveBuildPlan(timeout = 120_000): Promise<void> {
-		await this.getPlanApproveButton().waitFor({ state: 'visible', timeout });
-		await this.getPlanApproveButton().click();
+		const planApproveButton = this.getPlanApproveButton();
+		const confirmApproveButton = this.getConfirmApproveButton();
+		const planVisible = planApproveButton
+			.waitFor({ state: 'visible', timeout })
+			.then(() => 'plan' as const)
+			.catch(() => undefined);
+		const confirmVisible = confirmApproveButton
+			.waitFor({ state: 'visible', timeout })
+			.then(() => 'confirm' as const)
+			.catch(() => undefined);
+		const visibleSurface = await Promise.race([planVisible, confirmVisible]);
+
+		if (!visibleSurface) {
+			await Promise.all([planVisible, confirmVisible]);
+			throw new Error('No Instance AI build approval button became visible');
+		}
+
+		if (visibleSurface === 'plan') {
+			await planApproveButton.click();
+			return;
+		}
+
+		await confirmApproveButton.click();
 	}
 }
