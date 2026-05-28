@@ -3,6 +3,7 @@ import {
 	isMockableTriggerNodeType,
 	isTriggerNodeType,
 	needsWebhookId,
+	normalizeWorkflowNodeParameters,
 } from '../workflow-json-utils';
 
 describe('workflow-json-utils trigger helpers', () => {
@@ -110,5 +111,44 @@ describe('getReferencedWorkflowIds', () => {
 				connections: {},
 			}),
 		).toEqual(['wf-a', 'wf-b']);
+	});
+});
+
+describe('normalizeWorkflowNodeParameters', () => {
+	it('normalizes non-object node parameters in place', () => {
+		const json = {
+			name: 'Workflow',
+			nodes: [
+				{
+					id: 'null-parameters',
+					name: 'Null Parameters',
+					type: 'n8n-nodes-base.set',
+					typeVersion: 3,
+					position: [0, 0],
+					parameters: null,
+				},
+				{
+					id: 'array-parameters',
+					name: 'Array Parameters',
+					type: 'n8n-nodes-base.set',
+					typeVersion: 3,
+					position: [100, 0],
+					parameters: [],
+				},
+				{
+					id: 'object-parameters',
+					name: 'Object Parameters',
+					type: 'n8n-nodes-base.set',
+					typeVersion: 3,
+					position: [200, 0],
+					parameters: { keep: true },
+				},
+			],
+			connections: {},
+		} as Parameters<typeof normalizeWorkflowNodeParameters>[0];
+
+		normalizeWorkflowNodeParameters(json);
+
+		expect(json.nodes?.map((node) => node.parameters)).toEqual([{}, {}, { keep: true }]);
 	});
 });

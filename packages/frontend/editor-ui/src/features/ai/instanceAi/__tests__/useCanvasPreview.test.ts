@@ -447,6 +447,30 @@ describe('useCanvasPreview', () => {
 			expect(ctx.isPreviewVisible.value).toBe(false);
 		});
 
+		test('does not auto-open when hydration clears in the same tick as historical messages', async () => {
+			const ctx = setup();
+
+			ctx.thread.isHydratingThread = true;
+			ctx.thread.messages = [
+				makeMessage({
+					agentTree: makeAgentNode({
+						toolCalls: [
+							makeToolCall({
+								toolCallId: 'tc-build',
+								toolName: 'workflows',
+								result: { success: true, workflowId: 'wf-historical' },
+							}),
+						],
+					}),
+				}),
+			];
+			ctx.thread.isHydratingThread = false;
+			await nextTick();
+
+			expect(ctx.activeTabId.value).toBeUndefined();
+			expect(ctx.isPreviewVisible.value).toBe(false);
+		});
+
 		test('switches to latest artifact when a new workflow is built while viewing different artifact', async () => {
 			const ctx = setup();
 			registerDataTable(ctx.thread, 'dt-1', 'Table', 'proj-1');

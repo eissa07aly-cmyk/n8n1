@@ -17,7 +17,7 @@ interface PlannedTaskPermissionOptions {
  * Destructive actions, open-ended actions (fetch-url, read-file),
  * and credential deletion are intentionally excluded — they always require explicit approval.
  */
-export const PLANNED_TASK_PERMISSION_OVERRIDES: Partial<
+const PLANNED_TASK_PERMISSION_OVERRIDES: Partial<
 	Record<PlannedTaskKind, Partial<InstanceAiPermissions>>
 > = {
 	'build-workflow': {

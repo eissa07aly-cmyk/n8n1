@@ -34,6 +34,18 @@ export function needsWebhookId(nodeType: string | undefined): boolean {
 	return nodeType !== undefined && KNOWN_WEBHOOK_ID_TRIGGER_TYPES.has(nodeType);
 }
 
+export function normalizeWorkflowNodeParameters(json: WorkflowJSON): void {
+	for (const node of json.nodes ?? []) {
+		if (
+			typeof node.parameters !== 'object' ||
+			node.parameters === null ||
+			Array.isArray(node.parameters)
+		) {
+			node.parameters = {};
+		}
+	}
+}
+
 function extractWorkflowIdParameter(value: unknown): string | undefined {
 	const rawValue = isRecord(value) ? value.value : value;
 	if (typeof rawValue !== 'string') return undefined;

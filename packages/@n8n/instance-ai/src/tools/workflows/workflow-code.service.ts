@@ -11,6 +11,7 @@ import {
 	isMockableTriggerNodeType,
 	isTriggerNodeType,
 	needsWebhookId,
+	normalizeWorkflowNodeParameters,
 } from './workflow-json-utils';
 import { WORKFLOW_BUILDER_SKILL_ID } from '../../skills/constants';
 import type { InstanceAiContext } from '../../types';
@@ -524,18 +525,6 @@ function hasArrayItems(value: string[] | undefined): value is string[] {
 
 function hasRecordEntries<T>(value: Record<string, T> | undefined): value is Record<string, T> {
 	return Object.keys(value ?? {}).length > 0;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function normalizeWorkflowNodeParameters(json: WorkflowJSON): void {
-	for (const node of json.nodes ?? []) {
-		if (!isRecord(node.parameters)) {
-			node.parameters = {};
-		}
-	}
 }
 
 function enhanceValidationErrors(errors: string[]): string[] {
