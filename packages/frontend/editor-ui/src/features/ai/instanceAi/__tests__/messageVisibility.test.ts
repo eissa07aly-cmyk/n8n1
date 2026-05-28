@@ -118,6 +118,29 @@ describe('messageHasVisibleContent', () => {
 		).toBe(true);
 	});
 
+	it('hides assistant messages whose only timeline entry is a skill-loading tool call', () => {
+		expect(
+			messageHasVisibleContent(
+				assistantMessage('', {
+					isStreaming: true,
+					agentTree: makeAgentTree({
+						status: 'active',
+						toolCalls: [
+							{
+								toolCallId: 'tc-skill',
+								toolName: 'load_skill',
+								args: { name: 'workflow-builder' },
+								isLoading: true,
+								renderHint: 'skill',
+							},
+						],
+						timeline: [{ type: 'tool-call', toolCallId: 'tc-skill', responseId: 'response-1' }],
+					}),
+				}),
+			),
+		).toBe(false);
+	});
+
 	it('keeps completed legacy builder tool calls visible when they render an artifact', () => {
 		expect(
 			messageHasVisibleContent(

@@ -14,7 +14,14 @@ import {
 } from './agentTimeline.utils';
 
 /** Render hints for tool calls that show as special UI — not as generic "tool call" steps. */
-const SPECIAL_RENDER_HINTS = new Set(['tasks', 'delegate', 'builder', 'data-table', 'eval-setup']);
+const SPECIAL_RENDER_HINTS = new Set([
+	'tasks',
+	'delegate',
+	'builder',
+	'data-table',
+	'eval-setup',
+	'skill',
+]);
 
 /** Returns true if a tool call renders as a generic ToolCallStep (not special UI). */
 function isGenericToolCall(tc: InstanceAiToolCallState): boolean {
@@ -168,7 +175,7 @@ export function getGroupToolIcons(
 	for (const entry of group.entries) {
 		if (entry.type === 'tool-call') {
 			const tc = toolCalls.find((t) => t.toolCallId === entry.toolCallId);
-			if (tc && !HIDDEN_TOOLS.has(tc.toolName)) {
+			if (tc && isGenericToolCall(tc)) {
 				icons.add(getIcon(tc.toolName));
 			}
 		}

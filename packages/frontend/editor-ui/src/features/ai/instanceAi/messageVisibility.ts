@@ -11,7 +11,7 @@ import {
 } from './agentTimeline.utils';
 import { stripInternalInstanceAiBlocks } from './internalBlocks';
 
-const HIDDEN_RENDER_HINTS = new Set(['data-table', 'eval-setup', 'planner']);
+const HIDDEN_RENDER_HINTS = new Set(['data-table', 'eval-setup', 'planner', 'skill']);
 
 function toolCallHasVisibleContent(
 	toolCall: InstanceAiToolCallState,

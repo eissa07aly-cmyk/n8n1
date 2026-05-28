@@ -252,6 +252,7 @@ function mapTaskItemsToPlannedTasks(tasks?: TaskList): PlannedTaskArg[] | undefi
 				<template v-else-if="isLegacyBuilderToolCall(toolCallsById[entry.toolCallId])" />
 				<template v-else-if="toolCallsById[entry.toolCallId].renderHint === 'data-table'" />
 				<template v-else-if="toolCallsById[entry.toolCallId].renderHint === 'eval-setup'" />
+				<template v-else-if="toolCallsById[entry.toolCallId].renderHint === 'skill'" />
 				<!-- Plan review must match before the planner renderHint suppression:
 				     when the plan tool attaches the confirmation to its own tool call
 				     (no planner child agent), that suppression would otherwise hide it. -->

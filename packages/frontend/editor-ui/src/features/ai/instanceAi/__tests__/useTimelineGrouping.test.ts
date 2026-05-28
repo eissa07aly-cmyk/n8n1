@@ -149,6 +149,59 @@ describe('useTimelineGrouping', () => {
 		]);
 	});
 
+	test('drops skill-loading-only groups from the collapsed timeline', () => {
+		const agentNode = makeAgentNode({
+			toolCalls: [
+				makeToolCall({
+					toolCallId: 'tc-skill',
+					toolName: 'load_skill',
+					args: { name: 'workflow-builder' },
+					renderHint: 'skill',
+				}),
+			],
+			timeline: [{ type: 'tool-call', toolCallId: 'tc-skill', responseId: 'response-1' }],
+		});
+
+		expect(useTimelineGrouping(ref(agentNode)).value).toBeNull();
+	});
+
+	test('does not count skill-loading calls when grouped with visible work', () => {
+		const agentNode = makeAgentNode({
+			toolCalls: [
+				makeToolCall({
+					toolCallId: 'tc-skill',
+					toolName: 'load_skill',
+					args: { name: 'workflow-builder' },
+					renderHint: 'skill',
+				}),
+				makeToolCall({
+					toolCallId: 'tc-workflow',
+					toolName: 'workflows',
+					args: { action: 'create' },
+					result: { workflowId: 'wf-4', workflowName: 'Visible workflow' },
+				}),
+			],
+			timeline: [
+				{ type: 'tool-call', toolCallId: 'tc-skill', responseId: 'response-1' },
+				{ type: 'tool-call', toolCallId: 'tc-workflow', responseId: 'response-1' },
+			],
+		});
+
+		expect(useTimelineGrouping(ref(agentNode)).value?.[0]).toEqual(
+			expect.objectContaining({
+				kind: 'response-group',
+				toolCallCount: 1,
+				artifacts: [
+					expect.objectContaining({
+						type: 'workflow',
+						resourceId: 'wf-4',
+						name: 'Visible workflow',
+					}),
+				],
+			}),
+		);
+	});
+
 	test('keeps plan-review-only groups visible', () => {
 		const agentNode = makeAgentNode({
 			toolCalls: [
