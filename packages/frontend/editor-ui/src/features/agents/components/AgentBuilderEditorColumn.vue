@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { N8nCard, N8nRadioButtons } from '@n8n/design-system';
+import { N8nCard, N8nRadioButtons, N8nSwitch2, N8nText } from '@n8n/design-system';
 import { useI18n } from '@n8n/i18n';
 import type { AgentFileDto } from '@n8n/api-types';
 
@@ -35,6 +35,7 @@ const props = defineProps<{
 }>();
 
 const childrenDisabled = computed(() => props.isBuildChatStreaming || !props.canEditAgent);
+const subAgentsEnabled = computed(() => props.localConfig?.subAgents?.enabled === true);
 
 const emit = defineEmits<{
 	'update:activeMainTab': [tab: AgentBuilderMainTab];
@@ -54,6 +55,15 @@ const emit = defineEmits<{
 }>();
 
 const i18n = useI18n();
+
+function onSubAgentsToggle(enabled: boolean) {
+	emit('update:config', {
+		subAgents: {
+			...props.localConfig?.subAgents,
+			enabled,
+		},
+	});
+}
 </script>
 
 <template>
@@ -132,6 +142,26 @@ const i18n = useI18n();
 							data-testid="agent-memory-panel"
 							@update:config="emit('update:config', $event)"
 						/>
+					</N8nCard>
+
+					<N8nCard variant="outlined" :class="$style.card">
+						<div :class="[$style.subAgentsPanel, childrenDisabled && $style.disabled]">
+							<div :class="$style.subAgentsText">
+								<N8nText tag="h3" :bold="true">
+									{{ i18n.baseText('agents.builder.subAgents.title') }}
+								</N8nText>
+								<N8nText size="small" color="text-light">
+									{{ i18n.baseText('agents.builder.subAgents.description') }}
+								</N8nText>
+							</div>
+							<N8nSwitch2
+								:model-value="subAgentsEnabled"
+								:disabled="childrenDisabled"
+								:aria-label="i18n.baseText('agents.builder.subAgents.toggle')"
+								data-testid="agent-sub-agents-toggle"
+								@update:model-value="(value) => onSubAgentsToggle(Boolean(value))"
+							/>
+						</div>
 					</N8nCard>
 
 					<N8nCard variant="outlined" :class="$style.card">
@@ -254,5 +284,23 @@ const i18n = useI18n();
 	display: flex;
 	flex-direction: column;
 	width: 100%;
+}
+
+.subAgentsPanel {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--spacing--sm);
+	width: 100%;
+}
+
+.subAgentsText {
+	display: flex;
+	flex-direction: column;
+	gap: var(--spacing--3xs);
+}
+
+.disabled {
+	opacity: 0.6;
 }
 </style>

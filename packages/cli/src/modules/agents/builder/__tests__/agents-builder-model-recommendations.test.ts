@@ -117,11 +117,20 @@ describe('builder model recommendations', () => {
 		expect(prompt).toContain('## LLM Selection Guidance');
 		expect(prompt).toContain('## Memory Guidance');
 		expect(prompt).toContain('## Tool Guidance');
+		expect(prompt).toContain('## Sub Agents');
 		expect(prompt).toContain('Additional specialized builder guidance is available');
 		expect(prompt).not.toContain('agent-builder-config-mutation');
 		expect(prompt).not.toContain('agent-builder-llm-selection');
 		expect(prompt).not.toContain('agent-builder-memory');
 		expect(prompt).not.toContain('agent-builder-tools');
+	});
+
+	it('teaches the builder how to configure subagent delegation', () => {
+		const prompt = buildPrompt(null);
+
+		expect(prompt).toContain('`subAgents: { "enabled": true }`');
+		expect(prompt).toContain('the runtime injects `delegate_subagent`');
+		expect(prompt).toContain('Do not invent nested subagent definitions yet');
 	});
 
 	it('tells the builder to preserve fallback web search on model switches', () => {
