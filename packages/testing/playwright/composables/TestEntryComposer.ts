@@ -4,6 +4,8 @@ import { setupDefaultInterceptors } from '../config/intercepts';
 import type { n8nPage } from '../pages/n8nPage';
 import type { TestUser } from '../services/user-api-helper';
 
+const STICKY_NOTE_NODE_TYPE = 'n8n-nodes-base.stickyNote';
+
 /**
  * Composer for UI test entry points. All methods in this class navigate to or verify UI state.
  * For API-only testing, use the standalone `api` fixture directly instead.
@@ -59,7 +61,15 @@ export class TestEntryComposer {
 	 */
 	async fromImportedWorkflow(workflowFile: string) {
 		const workflowImportResult = await this.n8n.api.workflows.importWorkflowFromFile(workflowFile);
-		await this.n8n.page.goto(`workflow/${workflowImportResult.workflowId}`);
+		const renderedNodeCount = workflowImportResult.createdWorkflow.nodes.filter(
+			(node) => node.type && node.type !== STICKY_NOTE_NODE_TYPE,
+		).length;
+
+		await this.n8n.page.goto(`/workflow/${workflowImportResult.workflowId}`, {
+			waitUntil: 'commit',
+		});
+		await this.n8n.canvas.waitForWorkflowCanvasReady({ nodeCount: renderedNodeCount });
+
 		return workflowImportResult;
 	}
 

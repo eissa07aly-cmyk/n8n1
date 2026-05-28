@@ -12,6 +12,8 @@ import { SaveChangesModal } from './components/SaveChangesModal';
 import { StickyComponent } from './components/StickyComponent';
 import { TagsManagerModal } from './components/TagsManagerModal';
 
+const WORKFLOW_CANVAS_READY_TIMEOUT = 30_000;
+
 export class CanvasPage extends BasePage {
 	async goto() {
 		await this.page.goto(ROUTES.NEW_WORKFLOW_PAGE);
@@ -554,6 +556,24 @@ export class CanvasPage extends BasePage {
 		await expect(this.getNodeViewLoader()).toBeHidden();
 		await expect(this.getLoadingMask()).toBeHidden();
 		await expect(this.getChoicePrompt()).toBeVisible();
+	}
+
+	async waitForWorkflowCanvasReady(options?: { nodeCount?: number }): Promise<void> {
+		await expect(this.getNodeViewLoader()).toBeHidden({ timeout: WORKFLOW_CANVAS_READY_TIMEOUT });
+		await expect(this.getLoadingMask()).toBeHidden({ timeout: WORKFLOW_CANVAS_READY_TIMEOUT });
+		await expect(this.canvasPane()).toBeVisible({ timeout: WORKFLOW_CANVAS_READY_TIMEOUT });
+
+		if (options?.nodeCount !== undefined) {
+			await expect(this.getCanvasNodes()).toHaveCount(options.nodeCount, {
+				timeout: WORKFLOW_CANVAS_READY_TIMEOUT,
+			});
+		}
+
+		if (options?.nodeCount === undefined || options.nodeCount > 0) {
+			await expect(this.getCanvasNodes().first()).toBeVisible({
+				timeout: WORKFLOW_CANVAS_READY_TIMEOUT,
+			});
+		}
 	}
 
 	async addInitialNodeToCanvas(nodeName: string): Promise<void> {
