@@ -82,11 +82,15 @@ function serverToOAuth2CredentialDescription(server: McpRegistryServer): ICreden
 	};
 }
 
+function isSupportedExistingCredential(authType: McpRegistryServer['authType']) {
+	return (mcpRegistryServerSupportedCredentialTypes as readonly string[]).includes(authType);
+}
+
 /**
  * Get the `credentials` property for node description based on the server's auth type
  */
 function getNodeDescriptionCredentials(server: McpRegistryServer): INodeCredentialDescription[] {
-	if ((mcpRegistryServerSupportedCredentialTypes as readonly string[]).includes(server.authType)) {
+	if (isSupportedExistingCredential(server.authType)) {
 		return [{ name: server.authType, required: true }];
 	}
 	switch (server.authType) {
@@ -180,7 +184,7 @@ export function serverToNodeDescription(
 	server: McpRegistryServer,
 	baseDescription: INodeTypeDescription,
 ): INodeTypeDescription | null {
-	if (server.authType !== 'oauth2') return null;
+	if (server.authType !== 'oauth2' && !isSupportedExistingCredential(server.authType)) return null;
 
 	const remote = pickRemote(server);
 	if (!remote) return null;
