@@ -775,13 +775,21 @@ async function reportPlannedBuildFailure({
 
 	const action = await plannedBuildTask.workflowTaskService?.reportBuildOutcome(outcome);
 	if (action?.type === 'blocked' || !remediation.shouldEdit) {
-		await plannedBuildTask.plannedTaskService.markFailed?.(
-			plannedBuildTask.threadId,
-			plannedBuildTask.taskId,
-			{
-				error: action?.type === 'blocked' ? action.reason : remediation.guidance,
-			},
-		);
+		try {
+			await plannedBuildTask.plannedTaskService.markFailed?.(
+				plannedBuildTask.threadId,
+				plannedBuildTask.taskId,
+				{
+					error: action?.type === 'blocked' ? action.reason : remediation.guidance,
+				},
+			);
+		} catch (error) {
+			context.logger?.warn?.('Failed to mark planned build task failed after terminal failure', {
+				threadId: plannedBuildTask.threadId,
+				taskId: plannedBuildTask.taskId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 	return action;
 }
@@ -927,6 +935,22 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 		});
 		inFlightCreates.set(key, pending);
 		return await pending;
+	}
+
+	async function reportSaveFailure(error: unknown): Promise<WorkflowCodeFailureResult> {
+		const message = `Workflow save failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+		const loopAction = await reportPlannedBuildFailureSafely({
+			context,
+			errors: [message],
+			failureSignature: `save_failed:${message}`,
+			category: 'blocked',
+			shouldEdit: false,
+			reason: 'save_failed',
+		});
+		return {
+			success: false,
+			errors: appendWorkflowLoopAction([message], loopAction),
+		};
 	}
 
 	async function saveWorkflowCode(
@@ -1154,63 +1178,55 @@ export function createWorkflowCodeService(context: InstanceAiContext) {
 			} else {
 				const createKey = getCreateInFlightKey(input, json);
 				return await runCreateOnce(createKey, async () => {
-					const markAsAiTemporary = input.temporary === true;
-					const created = await context.workflowService.createFromWorkflowJSON(json, {
-						...(projectId ? { projectId } : {}),
-						...(markAsAiTemporary ? { markAsAiTemporary: true } : {}),
-					});
-					if (markAsAiTemporary) {
-						const createdWorkflowIds = (context.aiCreatedWorkflowIds ??= new Set<string>());
-						createdWorkflowIds.add(created.id);
-					}
-					const saveMetadata = buildWorkflowSaveMetadata({
-						workflowId: created.id,
-						triggerNodes,
-						mockResult,
-						referencedWorkflowIds,
-						hasUnresolvedPlaceholders: hasPlaceholders,
-					});
-					if (markAsAiTemporary) {
+					try {
+						const markAsAiTemporary = input.temporary === true;
+						const created = await context.workflowService.createFromWorkflowJSON(json, {
+							...(projectId ? { projectId } : {}),
+							...(markAsAiTemporary ? { markAsAiTemporary: true } : {}),
+						});
+						if (markAsAiTemporary) {
+							const createdWorkflowIds = (context.aiCreatedWorkflowIds ??= new Set<string>());
+							createdWorkflowIds.add(created.id);
+						}
+						const saveMetadata = buildWorkflowSaveMetadata({
+							workflowId: created.id,
+							triggerNodes,
+							mockResult,
+							referencedWorkflowIds,
+							hasUnresolvedPlaceholders: hasPlaceholders,
+						});
+						if (markAsAiTemporary) {
+							rememberCreatedCode(created.id, finalCode);
+							return {
+								success: true,
+								workflowId: created.id,
+								workflowName: json.name,
+								temporary: true,
+								...saveMetadata,
+								warnings: buildSaveWarnings(informational),
+							};
+						}
+						const plannedReportError = await reportPlannedBuildSuccessSafely({
+							context,
+							workflowId: created.id,
+							workflowName: json.name,
+							...saveMetadata,
+						});
 						rememberCreatedCode(created.id, finalCode);
 						return {
 							success: true,
 							workflowId: created.id,
 							workflowName: json.name,
-							temporary: true,
 							...saveMetadata,
-							warnings: buildSaveWarnings(informational),
+							warnings: buildSaveWarnings(informational, plannedReportError),
 						};
+					} catch (error) {
+						return await reportSaveFailure(error);
 					}
-					const plannedReportError = await reportPlannedBuildSuccessSafely({
-						context,
-						workflowId: created.id,
-						workflowName: json.name,
-						...saveMetadata,
-					});
-					rememberCreatedCode(created.id, finalCode);
-					return {
-						success: true,
-						workflowId: created.id,
-						workflowName: json.name,
-						...saveMetadata,
-						warnings: buildSaveWarnings(informational, plannedReportError),
-					};
 				});
 			}
 		} catch (error) {
-			const message = `Workflow save failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-			const loopAction = await reportPlannedBuildFailureSafely({
-				context,
-				errors: [message],
-				failureSignature: `save_failed:${message}`,
-				category: 'blocked',
-				shouldEdit: false,
-				reason: 'save_failed',
-			});
-			return {
-				success: false,
-				errors: appendWorkflowLoopAction([message], loopAction),
-			};
+			return await reportSaveFailure(error);
 		}
 	}
 

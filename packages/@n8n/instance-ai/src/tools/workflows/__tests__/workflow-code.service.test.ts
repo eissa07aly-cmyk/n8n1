@@ -306,6 +306,57 @@ describe('workflow code create/update approval flow', () => {
 		});
 	});
 
+	it('keeps blocked guidance when terminal task marking fails', async () => {
+		mockedParseAndValidate.mockImplementationOnce(() => {
+			throw new Error('Failed to parse workflow code: syntax error');
+		});
+		const logger = { warn: jest.fn() };
+		const markFailed = jest.fn().mockRejectedValue(new Error('state write unavailable'));
+		const plannedBuildTask = makePlannedBuildTask({
+			plannedTaskService: {
+				getGraph: jest.fn().mockResolvedValue({ tasks: [{ id: 'task-1', status: 'running' }] }),
+				markFailed,
+			},
+			workflowTaskService: {
+				reportBuildOutcome: jest.fn().mockResolvedValue({
+					type: 'blocked',
+					reason: 'The workflow could not be saved after three submit attempts.',
+				}),
+			},
+		});
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{
+				logger,
+				plannedBuildTask,
+			},
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const result = await service.create(
+			{ action: 'create', code: 'invalid', name: 'Lead intake' },
+			context,
+		);
+
+		expect(result).toEqual({
+			success: false,
+			errors: [
+				'Failed to parse workflow code: syntax error',
+				'Repair guard stopped automatic edits: The workflow could not be saved after three submit attempts.',
+			],
+		});
+		expect(markFailed).toHaveBeenCalledTimes(1);
+		expect(logger.warn).toHaveBeenCalledWith(
+			'Failed to mark planned build task failed after terminal failure',
+			expect.objectContaining({
+				threadId: 'thread-1',
+				taskId: 'task-1',
+				error: 'state write unavailable',
+			}),
+		);
+	});
+
 	it('reports planned build denial as a blocked user_denied outcome', async () => {
 		const reportBuildOutcome = jest
 			.fn<Promise<{ type: 'blocked'; reason: string }>, [WorkflowBuildOutcome]>()
@@ -601,6 +652,63 @@ describe('workflow code create/update approval flow', () => {
 			expect.objectContaining({ success: true, workflowId: 'created-wf' }),
 		]);
 		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalledTimes(1);
+	});
+
+	it('deduplicates planned create failure reporting for concurrent creates', async () => {
+		const reportBuildOutcome = jest
+			.fn<Promise<{ type: 'blocked'; reason: string }>, [WorkflowBuildOutcome]>()
+			.mockResolvedValue({ type: 'blocked', reason: 'Workflow save failed: storage unavailable' });
+		const markFailed = jest.fn().mockResolvedValue(undefined);
+		const plannedBuildTask = makePlannedBuildTask();
+		plannedBuildTask.workflowTaskService.reportBuildOutcome = reportBuildOutcome;
+		plannedBuildTask.plannedTaskService.markFailed = markFailed;
+		const ctx = makeContext(
+			{ createWorkflow: 'always_allow' },
+			{
+				plannedBuildTask,
+			},
+		);
+		let rejectCreate!: (error: Error) => void;
+		jest.mocked(ctx.workflowService.createFromWorkflowJSON).mockReturnValue(
+			new Promise((_resolve, reject) => {
+				rejectCreate = reject;
+			}),
+		);
+		const service = createWorkflowCodeService(ctx);
+		const { context } = makeToolContext();
+
+		const first = service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+		const second = service.create(
+			{ action: 'create', code: validCode, name: 'Lead intake' },
+			context,
+		);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(ctx.workflowService.createFromWorkflowJSON).toHaveBeenCalledTimes(1);
+		rejectCreate(new Error('storage unavailable'));
+		const results = await Promise.all([first, second]);
+
+		expect(results).toEqual([
+			{
+				success: false,
+				errors: [
+					'Workflow save failed: storage unavailable',
+					'Repair guard stopped automatic edits: Workflow save failed: storage unavailable',
+				],
+			},
+			{
+				success: false,
+				errors: [
+					'Workflow save failed: storage unavailable',
+					'Repair guard stopped automatic edits: Workflow save failed: storage unavailable',
+				],
+			},
+		]);
+		expect(reportBuildOutcome).toHaveBeenCalledTimes(1);
+		expect(markFailed).toHaveBeenCalledTimes(1);
 	});
 
 	it('returns direct save routing metadata for setup and verification', async () => {
