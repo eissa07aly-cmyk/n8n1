@@ -5,6 +5,18 @@ import type { InstanceAiToolCallState } from '@n8n/api-types';
 
 const NO_TOGGLE_TOOLS = new Set(['updateWorkingMemory', 'plan', 'task-control']);
 const N8N_SKILL_DIR_TEMPLATE = '$' + '{N8N_SKILL_DIR}';
+const NODE_SCHEMA_TOOL_NAMES = new Set([
+	'get-node-type-definition',
+	'get-node-types',
+	'get_node_types',
+]);
+const NODE_LABEL_ACRONYMS = new Map([
+	['ai', 'AI'],
+	['api', 'API'],
+	['graphql', 'GraphQL'],
+	['http', 'HTTP'],
+	['json', 'JSON'],
+]);
 type I18n = ReturnType<typeof useI18n>;
 type SkillFileGroup = 'references' | 'scripts' | 'templates' | 'examples' | 'assets';
 
@@ -64,6 +76,78 @@ function appendKind(label: string, kind: string): string {
 function isSkillFileGroup(value: string | undefined): value is SkillFileGroup {
 	return (
 		value !== undefined && Object.prototype.hasOwnProperty.call(SKILL_FILE_GROUP_LABELS, value)
+	);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function capitalizeNodeLabelWord(word: string): string {
+	const lowerWord = word.toLowerCase();
+	return NODE_LABEL_ACRONYMS.get(lowerWord) ?? `${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+}
+
+function humanizeNodeTypeLabel(nodeType: string): string {
+	const leaf = nodeType.split('.').filter(Boolean).at(-1) ?? nodeType;
+	const words = leaf
+		.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+		.replace(/[-_]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+
+	return words ? words.split(' ').map(capitalizeNodeLabelWord).join(' ') : nodeType;
+}
+
+function getNodeTypeId(value: unknown): string | undefined {
+	if (typeof value === 'string') return value;
+	if (!isRecord(value)) return undefined;
+	if (typeof value.nodeType === 'string') return value.nodeType;
+	if (typeof value.nodeId === 'string') return value.nodeId;
+	return undefined;
+}
+
+function getSchemaNodeLabels(args?: Record<string, unknown>): string[] {
+	const nodeList = Array.isArray(args?.nodeTypes)
+		? args.nodeTypes
+		: Array.isArray(args?.nodeIds)
+			? args.nodeIds
+			: undefined;
+	const nodeTypeIds = nodeList
+		? nodeList.map(getNodeTypeId)
+		: [args?.nodeType, args?.nodeId].map(getNodeTypeId);
+
+	return Array.from(
+		new Set(
+			nodeTypeIds
+				.filter((nodeTypeId): nodeTypeId is string => Boolean(nodeTypeId))
+				.map(humanizeNodeTypeLabel),
+		),
+	);
+}
+
+function isNodeSchemaLookup(toolName: string, args?: Record<string, unknown>): boolean {
+	return (
+		(toolName === 'nodes' && args?.action === 'type-definition') ||
+		NODE_SCHEMA_TOOL_NAMES.has(toolName)
+	);
+}
+
+function getNodeSchemaToolLabel(
+	i18n: I18n,
+	toolName: string,
+	args?: Record<string, unknown>,
+): string | undefined {
+	if (!isNodeSchemaLookup(toolName, args)) return undefined;
+
+	const nodeLabels = getSchemaNodeLabels(args);
+	if (nodeLabels.length === 0) return undefined;
+
+	return i18n.baseText(
+		nodeLabels.length === 1
+			? 'instanceAi.tools.nodeSchema.withNode'
+			: 'instanceAi.tools.nodeSchema.withNodes',
+		{ interpolate: { nodeNames: nodeLabels.join(', ') } },
 	);
 }
 
@@ -160,6 +244,9 @@ export function useToolLabel() {
 
 			return i18n.baseText('instanceAi.tools.workspace_execute_command.skill');
 		}
+
+		const nodeSchemaToolLabel = getNodeSchemaToolLabel(i18n, toolName, args);
+		if (nodeSchemaToolLabel) return nodeSchemaToolLabel;
 
 		const action = typeof args?.action === 'string' ? args.action : undefined;
 		if (action) {

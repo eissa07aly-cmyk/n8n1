@@ -4,9 +4,11 @@ import type { InstanceAiToolCallState } from '@n8n/api-types';
 
 vi.mock('@n8n/i18n', () => ({
 	useI18n: () => ({
-		baseText: (key: string) => {
+		baseText: (key: string, options?: { interpolate?: Record<string, string | number> }) => {
 			const translations: Record<string, string> = {
 				'instanceAi.tools.nodes': 'Search nodes',
+				'instanceAi.tools.nodeSchema.withNode': 'Loading node schema: {nodeNames}',
+				'instanceAi.tools.nodeSchema.withNodes': 'Loading node schemas: {nodeNames}',
 				'instanceAi.tools.executions': 'Run workflow',
 				'instanceAi.tools.workspace_execute_command': 'Running command',
 				'instanceAi.tools.workspace_execute_command.skill': 'Running skill script',
@@ -29,7 +31,11 @@ vi.mock('@n8n/i18n', () => ({
 				'instanceAi.stepTimeline.showBrief': 'Show brief',
 				'instanceAi.stepTimeline.hideBrief': 'Hide brief',
 			};
-			return translations[key] ?? key;
+			const text = translations[key] ?? key;
+			return Object.entries(options?.interpolate ?? {}).reduce(
+				(current, [name, value]) => current.replaceAll(`{${name}}`, String(value)),
+				text,
+			);
 		},
 	}),
 }));
@@ -105,6 +111,33 @@ describe('getToolIcon', () => {
 });
 
 describe('useToolLabel', () => {
+	test('getToolLabel appends node names for schema lookups', () => {
+		const { getToolLabel } = useToolLabel();
+
+		expect(
+			getToolLabel('nodes', {
+				action: 'type-definition',
+				nodeTypes: ['n8n-nodes-base.notion'],
+			}),
+		).toBe('Loading node schema: Notion');
+		expect(
+			getToolLabel('nodes', {
+				action: 'type-definition',
+				nodeTypes: [{ nodeType: 'n8n-nodes-base.googleSheets' }],
+			}),
+		).toBe('Loading node schema: Google Sheets');
+		expect(
+			getToolLabel('get_node_types', {
+				nodeIds: ['n8n-nodes-base.slack', { nodeId: 'n8n-nodes-base.httpRequest' }],
+			}),
+		).toBe('Loading node schemas: Slack, HTTP Request');
+		expect(
+			getToolLabel('get-node-type-definition', {
+				nodeTypes: ['n8n-nodes-base.slack'],
+			}),
+		).toBe('Loading node schema: Slack');
+	});
+
 	test('getToolLabel returns translated label when found', () => {
 		const { getToolLabel } = useToolLabel();
 		expect(getToolLabel('nodes')).toBe('Search nodes');

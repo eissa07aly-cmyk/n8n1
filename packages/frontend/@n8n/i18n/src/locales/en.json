@@ -5837,6 +5837,8 @@
 	"instanceAi.tools.filesystem.search": "Searching files",
 	"instanceAi.tools.filesystem.tree": "Reading file tree",
 	"instanceAi.tools.nodes": "Nodes",
+	"instanceAi.tools.nodeSchema.withNode": "Loading node schema: {nodeNames}",
+	"instanceAi.tools.nodeSchema.withNodes": "Loading node schemas: {nodeNames}",
 	"instanceAi.tools.nodes.list": "Listing available nodes",
 	"instanceAi.tools.nodes.search": "Searching nodes",
 	"instanceAi.tools.nodes.describe": "Reading node details",
