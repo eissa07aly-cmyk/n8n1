@@ -678,6 +678,8 @@ export interface InstanceAiContext {
 	 * Used to register `parse-file` and supply data to the parser.
 	 */
 	currentUserAttachments?: InstanceAiAttachment[];
+	/** Current user message text. Runtime-only — not persisted; mirrors orchestrationContext for context-built tools. */
+	currentUserMessage?: string;
 	/** Optional logger for diagnostics from domain tools. */
 	logger?: Logger;
 	/** Planned build task currently being executed by the orchestrator with the workflow-builder skill. */
