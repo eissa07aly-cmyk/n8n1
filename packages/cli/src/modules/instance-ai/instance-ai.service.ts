@@ -5081,6 +5081,33 @@ export class InstanceAiService {
 			}),
 		});
 		await this.deletePendingUserInputMessage(suspended.runId);
+		// Un-stick a cancelled/timed-out planned-build or checkpoint task so the scheduler can re-dispatch it next turn.
+		await this.settleCancelledSuspendedPlannedTask(suspended);
+	}
+
+	private async settleCancelledSuspendedPlannedTask(
+		suspended: SuspendedRunState<User>,
+	): Promise<void> {
+		const { plannedBuild, checkpoint, threadId } = suspended;
+		if (!plannedBuild && !checkpoint) return;
+		try {
+			const { plannedTaskService } = await this.createPlannedTaskState();
+			if (plannedBuild) {
+				await plannedTaskService.revertWorkflowBuildToPlanned(threadId, plannedBuild.taskId);
+			}
+			if (checkpoint) {
+				await plannedTaskService.revertCheckpointToPlanned(threadId, checkpoint.checkpointTaskId);
+			}
+			const graph = await plannedTaskService.getGraph(threadId);
+			if (graph) {
+				await this.syncPlannedTasksToUi(threadId, graph);
+			}
+		} catch (error) {
+			this.logger.error('Failed to settle planned task for cancelled suspended run', {
+				threadId,
+				error: getErrorMessage(error),
+			});
+		}
 	}
 
 	private async reapAiTemporaryForThreadCleanup(threadId: string): Promise<void> {

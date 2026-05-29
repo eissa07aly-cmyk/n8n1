@@ -1858,6 +1858,65 @@ describe('InstanceAiService — planned task user revalidation', () => {
 	});
 });
 
+describe('InstanceAiService — cancelled suspended planned task settlement', () => {
+	type SettleServiceInternals = {
+		settleCancelledSuspendedPlannedTask: (suspended: unknown) => Promise<void>;
+		createPlannedTaskState: jest.Mock;
+		syncPlannedTasksToUi: jest.Mock;
+		logger: { error: jest.Mock };
+	};
+
+	function createSettleService() {
+		const service = Object.create(InstanceAiService.prototype) as unknown as SettleServiceInternals;
+		const graph = { planRunId: 'plan-1', messageGroupId: 'group-1', tasks: [] };
+		const plannedTaskService = {
+			revertWorkflowBuildToPlanned: jest.fn(async () => ({ ok: true })),
+			revertCheckpointToPlanned: jest.fn(async () => ({ ok: true })),
+			getGraph: jest.fn(async () => graph),
+		};
+		service.createPlannedTaskState = jest.fn(async () => ({ plannedTaskService }));
+		service.syncPlannedTasksToUi = jest.fn(async () => {});
+		service.logger = { error: jest.fn() };
+		return { service, plannedTaskService, graph };
+	}
+
+	it('reverts a cancelled suspended planned-build task to planned so the scheduler can re-dispatch it', async () => {
+		const { service, plannedTaskService, graph } = createSettleService();
+
+		await service.settleCancelledSuspendedPlannedTask({
+			threadId: 'thread-a',
+			plannedBuild: { taskId: 'build-1', workItemId: 'wi-1', title: 'Build', spec: 'Build it' },
+		});
+
+		expect(plannedTaskService.revertWorkflowBuildToPlanned).toHaveBeenCalledWith(
+			'thread-a',
+			'build-1',
+		);
+		expect(plannedTaskService.revertCheckpointToPlanned).not.toHaveBeenCalled();
+		expect(service.syncPlannedTasksToUi).toHaveBeenCalledWith('thread-a', graph);
+	});
+
+	it('reverts a cancelled suspended checkpoint task to planned', async () => {
+		const { service, plannedTaskService } = createSettleService();
+
+		await service.settleCancelledSuspendedPlannedTask({
+			threadId: 'thread-a',
+			checkpoint: { isCheckpointFollowUp: true, checkpointTaskId: 'cp-1' },
+		});
+
+		expect(plannedTaskService.revertCheckpointToPlanned).toHaveBeenCalledWith('thread-a', 'cp-1');
+		expect(plannedTaskService.revertWorkflowBuildToPlanned).not.toHaveBeenCalled();
+	});
+
+	it('does nothing when the suspended run is neither a planned build nor a checkpoint', async () => {
+		const { service } = createSettleService();
+
+		await service.settleCancelledSuspendedPlannedTask({ threadId: 'thread-a' });
+
+		expect(service.createPlannedTaskState).not.toHaveBeenCalled();
+	});
+});
+
 describe('InstanceAiService — suspended run user revalidation', () => {
 	it('cancels suspended resume when the user is no longer authorized', async () => {
 		const service = createSuspendedRunResumeService();
