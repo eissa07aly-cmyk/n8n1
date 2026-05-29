@@ -351,7 +351,8 @@ describe('buildAgentTreeFromEvents', () => {
 		const tree = buildAgentTreeFromEvents(events);
 
 		expect(tree.toolCalls[0].renderHint).toBe('delegate');
-		expect(tree.toolCalls[1].renderHint).toBe('builder');
+		// Native `workflows` tool renders as the default tool-call step (builder hint is legacy-only).
+		expect(tree.toolCalls[1].renderHint).toBe('default');
 	});
 
 	it('should handle confirmation-request events', () => {
